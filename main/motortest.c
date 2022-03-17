@@ -159,7 +159,7 @@ void pwm_pin_initialize() {
   
 }
 
-//initialize PCNT rotary encoders
+// //initialize PCNT rotary encoders
 void encoder_initialize() {
   //make configs
   rotary_encoder_config_t fl_config = ROTARY_ENCODER_DEFAULT_CONFIG(
@@ -289,6 +289,7 @@ void left_encoder_init() {
   ESP_ERROR_CHECK(pcnt_new_channel(BL_pcnt_unit, &BL_chan_b_config, BL_pcnt_chan_b));
 
   //Set up edge & channel events for each channel
+  //A Channels:
   ESP_ERROR_CHECK(pcnt_channel_set_edge_action(FL_pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
   ESP_ERROR_CHECK(pcnt_channel_set_edge_action(ML_pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
   ESP_ERROR_CHECK(pcnt_channel_set_edge_action(BL_pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
@@ -296,11 +297,47 @@ void left_encoder_init() {
   ESP_ERROR_CHECK(pcnt_channel_set_level_action(ML_pcnt_chan_a, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
   ESP_ERROR_CHECK(pcnt_channel_set_level_action(BL_pcnt_chan_a, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
 
+  //B channels:
+  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(FL_pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
+  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(ML_pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
+  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(BL_pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
+  ESP_ERROR_CHECK(pcnt_channel_set_level_action(FL_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
+  ESP_ERROR_CHECK(pcnt_channel_set_level_action(ML_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
+  ESP_ERROR_CHECK(pcnt_channel_set_level_action(BL_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
+
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FL_pcnt_unit, BDC_ENCODER_PCNT_HIGHT_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FL_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(ML_pcnt_unit, BDC_ENCODER_PCNT_HIGHT_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(ML_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BL_pcnt_unit, BDC_ENCODER_PCNT_HIGHT_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BL_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
+  
+  pcnt_event_callbacks_t FL_pcnt_cbs = {
+    .on_reach = FL_pcnt_on_reach,
+  };
+  pcnt_event_callbacks_t ML_pcnt_cbs = {
+    .on_reach = ML_pcnt_on_reach,
+  };
+  pcnt_event_callbacks_t BL_pcnt_cbs = {
+    .on_reach = BL_pcnt_on_reach,
+  };
+
+//-----NEED TO CHECK my_timer_ctx
+
+  ESP_ERROR_CHECK(FL_pcnt_unit_register_event_callbacks(FL_pcnt_unit, &pcnt_cbs, &my_timer_ctx));
+  ESP_ERROR_CHECK(ML_pcnt_unit_register_event_callbacks(ML_pcnt_unit, &pcnt_cbs, &my_timer_ctx));
+  ESP_ERROR_CHECK(ML_pcnt_unit_register_event_callbacks(BL_pcnt_unit, &pcnt_cbs, &my_timer_ctx));
+  ESP_ERROR_CHECK(pcnt_unit_clear_count(FL_PCNT_UNIT));
+  ESP_ERROR_CHECK(pcnt_unit_clear_count(ML_PCNT_UNIT));
+  ESP_ERROR_CHECK(pcnt_unit_clear_count(BL_PCNT_UNIT));
+  ESP_ERROR_CHECK(pcnt_unit_start(FL_PCNT_UNIT));
+  ESP_ERROR_CHECK(pcnt_unit_start(ML_PCNT_UNIT));
+  ESP_ERROR_CHECK(pcnt_unit_start(BL_PCNT_UNIT));
 }
 
-void right_encoder_init() {
+// void right_encoder_init() {
 
-}
+// }
 
 //setup PWM clocks
 void pwm_initialize() {
@@ -376,12 +413,11 @@ void set_direction_backward() {
 
 float calculate_duty_cycle(int pulse_counts, float duty) {
   //return 15.0;
-  if(duty >= 50.0) {
-    return 50.0;
+  if(duty >= 35.0) {
+    return 35.0;
   }
   return duty + 1.0;
-
-  //p
+}
   
 /*
  - Rewrite encoder initializers, potentially accessor interrupt functions
