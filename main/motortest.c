@@ -117,7 +117,11 @@ static void test_timer_init() {
   motor_ctrl_new_timer(&motor_ctrl.timer_info, motor_ctrl.timer_evt_que, CTRL_PERIOD, pulse_info);
 }
 
-//
+  //encoder stuff
+  static bool FL_pcnt_on_reach(pcnt_unit_handle_t unit, pcnt_watch_event_data_t *edata, void *user_ctx)
+  {
+    
+  }
 
 /*
   @brief - initialize GPIO pins for direction switching on new drivers
