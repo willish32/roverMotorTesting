@@ -52,6 +52,19 @@
 #define INCREMENT_VALUE 1.0 //increment value for stop gap incremental controller --> will be supplanted by PIDs
 #define RANGE 5 //acceptable range
 
+#define BDC_ENCODER_HIGH_LIMIT 100
+#define BDC_ENCODER_LOW_LIMIT -100
+
+typedef struct {
+    pcnt_unit_handle_t FL_pcnt_encoder;
+    pcnt_unit_handle_t ML_pcnt_encoder;
+    pcnt_unit_handle_t BL_pcnt_encoder;
+    int FL_accumu_count;
+    int ML_accumu_count;
+    int BL_accumu_count;
+    QueueHandle_t pid_feedback_queue;
+} motor_control_timer_context_t;
+
 
 static motor_control_t motor_ctrl;
 
@@ -120,7 +133,8 @@ static void test_timer_init() {
   //encoder stuff
   static bool FL_pcnt_on_reach(pcnt_unit_handle_t unit, pcnt_watch_event_data_t *edata, void *user_ctx)
   {
-    
+    //cast user context into motor control context
+    //add count change into accumu count for motor?
   }
 
 /*
@@ -309,11 +323,11 @@ void left_encoder_init() {
   ESP_ERROR_CHECK(pcnt_channel_set_level_action(ML_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
   ESP_ERROR_CHECK(pcnt_channel_set_level_action(BL_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
 
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FL_pcnt_unit, BDC_ENCODER_PCNT_HIGHT_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FL_pcnt_unit, BDC_ENCODER_PCNT_HIGH_LIMIT));
   ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FL_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(ML_pcnt_unit, BDC_ENCODER_PCNT_HIGHT_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(ML_pcnt_unit, BDC_ENCODER_PCNT_HIGH_LIMIT));
   ESP_ERROR_CHECK(pcnt_unit_add_watch_point(ML_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BL_pcnt_unit, BDC_ENCODER_PCNT_HIGHT_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BL_pcnt_unit, BDC_ENCODER_PCNT_HIGH_LIMIT));
   ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BL_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
   
   pcnt_event_callbacks_t FL_pcnt_cbs = {
