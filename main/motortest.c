@@ -328,9 +328,9 @@ void left_encoder_init() {
 
 //-----NEED TO CHECK my_timer_ctx
 
-  ESP_ERROR_CHECK(FL_pcnt_unit_register_event_callbacks(FL_pcnt_unit, &pcnt_cbs, &my_timer_ctx));
-  ESP_ERROR_CHECK(ML_pcnt_unit_register_event_callbacks(ML_pcnt_unit, &pcnt_cbs, &my_timer_ctx));
-  ESP_ERROR_CHECK(ML_pcnt_unit_register_event_callbacks(BL_pcnt_unit, &pcnt_cbs, &my_timer_ctx));
+  ESP_ERROR_CHECK(FL_pcnt_unit_register_event_callbacks(FL_pcnt_unit, &FL_cnt_cbs, &my_timer_ctx));
+  ESP_ERROR_CHECK(ML_pcnt_unit_register_event_callbacks(ML_pcnt_unit, &ML_pcnt_cbs, &my_timer_ctx));
+  ESP_ERROR_CHECK(ML_pcnt_unit_register_event_callbacks(BL_pcnt_unit, &BL_pcnt_cbs, &my_timer_ctx));
   ESP_ERROR_CHECK(pcnt_unit_clear_count(FL_PCNT_UNIT));
   ESP_ERROR_CHECK(pcnt_unit_clear_count(ML_PCNT_UNIT));
   ESP_ERROR_CHECK(pcnt_unit_clear_count(BL_PCNT_UNIT));
@@ -339,9 +339,124 @@ void left_encoder_init() {
   ESP_ERROR_CHECK(pcnt_unit_start(BL_PCNT_UNIT));
 }
 
-// void right_encoder_init() {
 
-// }
+//right side initialization
+void right_encoder_init() {
+pcnt_unit_config_t config = {
+    .high_limit = 100,
+    .low_limit = -100,
+  };
+  //establish actual unit handler object(s)?
+  pcnt_unit_handle_t FR_pcnt_unit = NULL;
+  pcnt_unit_handle_t MR_pcnt_unit = NULL;
+  pcnt_unit_handle_t BR_pcnt_unit = NULL;
+
+  //Actually make units for each encoder
+  ESP_ERROR_CHECK(pcnt_new_unit(&config, &FR_pcnt_unit));
+  ESP_ERROR_CHECK(pcnt_new_unit(&config, &MR_pcnt_unit));
+  ESP_ERROR_CHECK(pcnt_new_unit(&config, &BR_pcnt_unit));
+
+  //set up glitch filters for each
+  pcnt_glitch_filter_config_t filter_config = {
+    .max_glitch_ns = 1000,
+  };
+
+  ESP_ERROR_CHECK(pcnt_unit_set_glitch_filter(FR_pcnt_unit, &filter_config));
+  ESP_ERROR_CHECK(pcnt_unit_set_glitch_filter(MR_pcnt_unit, &filter_config));
+  ESP_ERROR_CHECK(pcnt_unit_set_glitch_filter(BR_pcnt_unit, &filter_config));
+  
+  //Channel A config
+  pcnt_chan_config_t FR_chan_a_config = {
+    .edge_gpio_num = FR_ENCODER_A,
+    .level_gpio_num = FR_ENCODER_B,
+  };
+  pcnt_chan_config_t MR_chan_a_config = {
+    .edge_gpio_num = MR_ENCODER_A,
+    .level_gpio_num = MR_ENCODER_B,
+  };
+  pcnt_chan_config_t BR_chan_a_config = {
+    .edge_gpio_num = BR_ENCODER_A,
+    .level_gpio_num = BR_ENCODER_B,
+  };
+
+  //Create actual A channels
+  pcnt_channel_handle_t FR_pcnt_chan_a = NULL;
+  ESP_ERROR_CHECK(pcnt_new_channel(FR_pcnt_unit, &FR_chan_a_config, &FR_pcnt_chan_a));
+  pcnt_channel_handle_t MR_pcnt_chan_a = NULL;
+  ESP_ERROR_CHECK(pcnt_new_channel(MR_pcnt_unit, &MR_chan_a_config, &MR_pcnt_chan_a));
+  pcnt_channel_handle_t BR_pcnt_chan_a = NULL;
+  ESP_ERROR_CHECK(pcnt_new_channel(BR_pcnt_unit, &BR_chan_a_config, &BR_pcnt_chan_a));
+
+  //channel B configs
+  pcnt_chan_config_t FR_chan_b_config = {
+    .edge_gpio_num = FR_ENCODER_B,
+    .level_gpio_num = FR_ENCODER_A,
+  };
+  pcnt_chan_config_t MR_chan_b_config = {
+    .edge_gpio_num = MR_ENCODER_B,
+    .level_gpio_num = MR_ENCODER_A,
+  };
+  pcnt_chan_config_t BR_chan_b_config = {
+    .edge_gpio_num = BR_ENCODER_B,
+    .level_gpio_num = BR_ENCODER_A,
+  };
+
+  //create actual B channrels
+  pcnt_channel_handle_t FR_pcnt_chan_b = NULL;
+  ESP_ERROR_CHECK(pcnt_new_channel(FR_pcnt_unit, &FR_chan_b_config, FR_pcnt_chan_b));
+  pcnt_channel_handle_t MR_pcnt_chan_b = NULL;
+  ESP_ERROR_CHECK(pcnt_new_channel(MR_pcnt_unit, &MR_chan_b_config, MR_pcnt_chan_b));
+  pcnt_channel_handle_t BR_pcnt_chan_b = NULL;
+  ESP_ERROR_CHECK(pcnt_new_channel(BR_pcnt_unit, &BR_chan_b_config, BR_pcnt_chan_b));
+
+
+  //TODO: Verify directionality of these for right side vs. left side
+  //Set up edge & channel events for each channel
+  //A Channels:
+  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(FR_pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
+  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(MR_pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
+  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(BR_pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
+  ESP_ERROR_CHECK(pcnt_channel_set_level_action(FR_pcnt_chan_a, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
+  ESP_ERROR_CHECK(pcnt_channel_set_level_action(MR_pcnt_chan_a, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
+  ESP_ERROR_CHECK(pcnt_channel_set_level_action(BR_pcnt_chan_a, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
+
+  //B channels:
+  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(FR_pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
+  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(MR_pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
+  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(BR_pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
+  ESP_ERROR_CHECK(pcnt_channel_set_level_action(FR_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
+  ESP_ERROR_CHECK(pcnt_channel_set_level_action(MR_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
+  ESP_ERROR_CHECK(pcnt_channel_set_level_action(BR_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
+
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FR_pcnt_unit, BDC_ENCODER_PCNT_HIGHT_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FR_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(MR_pcnt_unit, BDC_ENCODER_PCNT_HIGHT_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(MR_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BR_pcnt_unit, BDC_ENCODER_PCNT_HIGHT_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BR_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
+  
+  pcnt_event_callbacks_t FR_pcnt_cbs = {
+    .on_reach = FR_pcnt_on_reach,
+  };
+  pcnt_event_callbacks_t MR_pcnt_cbs = {
+    .on_reach = MR_pcnt_on_reach,
+  };
+  pcnt_event_callbacks_t BR_pcnt_cbs = {
+    .on_reach = BR_pcnt_on_reach,
+  };
+
+//-----NEED TO CHECK my_timer_ctx
+
+  ESP_ERROR_CHECK(FL_pcnt_unit_register_event_callbacks(FR_pcnt_unit, &FR_pcnt_cbs, &my_timer_ctx));
+  ESP_ERROR_CHECK(ML_pcnt_unit_register_event_callbacks(MR_pcnt_unit, &MR_pcnt_cbs, &my_timer_ctx));
+  ESP_ERROR_CHECK(ML_pcnt_unit_register_event_callbacks(BR_pcnt_unit, &BR_pcnt_cbs, &my_timer_ctx));
+  ESP_ERROR_CHECK(pcnt_unit_clear_count(FR_PCNT_UNIT));
+  ESP_ERROR_CHECK(pcnt_unit_clear_count(MR_PCNT_UNIT));
+  ESP_ERROR_CHECK(pcnt_unit_clear_count(BR_PCNT_UNIT));
+  ESP_ERROR_CHECK(pcnt_unit_start(FR_PCNT_UNIT));
+  ESP_ERROR_CHECK(pcnt_unit_start(MR_PCNT_UNIT));
+  ESP_ERROR_CHECK(pcnt_unit_start(BR_PCNT_UNIT));
+}
 
 //setup PWM clocks
 void pwm_initialize() {
