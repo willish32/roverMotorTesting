@@ -52,6 +52,19 @@
 #define INCREMENT_VALUE 1.0 //increment value for stop gap incremental controller --> will be supplanted by PIDs
 #define RANGE 5 //acceptable range
 
+#define BDC_ENCODER_HIGH_LIMIT 100
+#define BDC_ENCODER_LOW_LIMIT -100
+
+typedef struct {
+    pcnt_unit_handle_t FL_pcnt_encoder;
+    pcnt_unit_handle_t ML_pcnt_encoder;
+    pcnt_unit_handle_t BL_pcnt_encoder;
+    int FL_accumu_count;
+    int ML_accumu_count;
+    int BL_accumu_count;
+    QueueHandle_t pid_feedback_queue; //do we need to add 2 more of these?
+} motor_control_timer_context_t;
+
 
 static motor_control_t motor_ctrl;
 
@@ -120,7 +133,8 @@ static void test_timer_init() {
   //encoder stuff
   static bool FL_pcnt_on_reach(pcnt_unit_handle_t unit, pcnt_watch_event_data_t *edata, void *user_ctx)
   {
-    
+    //cast user context into motor control context
+    //add count change into accumu count for motor?
   }
 
 /*
@@ -309,11 +323,11 @@ void left_encoder_init() {
   ESP_ERROR_CHECK(pcnt_channel_set_level_action(ML_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
   ESP_ERROR_CHECK(pcnt_channel_set_level_action(BL_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
 
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FL_pcnt_unit, BDC_ENCODER_PCNT_HIGHT_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FL_pcnt_unit, BDC_ENCODER_PCNT_HIGH_LIMIT));
   ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FL_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(ML_pcnt_unit, BDC_ENCODER_PCNT_HIGHT_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(ML_pcnt_unit, BDC_ENCODER_PCNT_HIGH_LIMIT));
   ESP_ERROR_CHECK(pcnt_unit_add_watch_point(ML_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BL_pcnt_unit, BDC_ENCODER_PCNT_HIGHT_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BL_pcnt_unit, BDC_ENCODER_PCNT_HIGH_LIMIT));
   ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BL_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
   
   pcnt_event_callbacks_t FL_pcnt_cbs = {
@@ -509,6 +523,40 @@ static void set_duty_cycles() {
   mcpwm_set_duty(RIGHT_MOTOR_UNIT, MCPWM_TIMER_1, OPERATOR, duty_cycles[MIDDLE_RIGHT]);
   mcpwm_set_duty(RIGHT_MOTOR_UNIT, MCPWM_TIMER_2, OPERATOR, duty_cycles[BACK_RIGHT]);
 
+}
+
+static bool motor_ctrl_timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *arg)
+{
+  static int FL_last_pulse_count = 0;
+  static int ML_last_pulse_count = 0;
+  static int BL_last_pulse_count = 0;
+  BaseType_t high_tast_awoken = pdFALSE;
+  motor_control_timer_context_t *user_ctx = (motor_control_timer_context_t *)arg;
+  pcnt_unit_handle_t FL_pcnt_unit = user_ctx->FL_pcnt_encoder;
+  pcnt_unit_handle_t ML_pcnt_unit = user_ctx->ML_pcnt_encoder;
+  pcnt_unit_handle_t BL_pcnt_unit = user_ctx->BL_pcnt_encoder;
+
+  int FL_curr_pulse_count = 0;  //may be able to recycle thruout fx
+  pcnt_unit_get_count(FL_pcnt_unit, &FL_curr_pulse_count);
+  FL_cur_pulse_count += user_ctx->accumu_count; //need to look into this
+  int ML_curr_pulse_count = 0;
+  pcnt_unit_get_count(ML_pcnt_unit, &ML_curr_pulse_count);
+  ML_cur_pulse_count += user_ctx->accumu_count;
+  int BL_curr_pulse_count = 0;
+  pcnt_unit_get_count(BL_pcnt_unit, &BL_curr_pulse_count);
+  BL_cur_pulse_count += user_ctx->accumu_count;
+
+  int delta = FL_curr_pulse_count - FL_last_pulse_count; //recycled delta
+  FL_last_pulse_count = FL_curr_pulse_count;
+  xQueueSendFromISR(user_ctx->pid_feedback_queue, &delta, &high_task_awoken);
+  delta = ML_curr_pulse_count - ML_last_pulse_count;
+  ML_last_pulse_count = ML_curr_pulse_count;
+  xQueueSendFromISR(user_ctx->pid_feedback_queue, &delta, &high_task_awoken);
+  delta = BL_curr_pulse_count - BL_last_pulse_count;
+  BL_last_pulse_count = BL_curr_pulse_count;
+  xQueueSendFromISR(user_ctx->pid_feedback_queue, &delta, &high_task_awoken);
+
+  return high_task_awoken == pdTRUE;
 }
 
 void set_direction_forward() {
