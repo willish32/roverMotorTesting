@@ -54,8 +54,8 @@
 #define INCREMENT_VALUE 1.0 //increment value for stop gap incremental controller --> will be supplanted by PIDs
 #define RANGE 5 //acceptable range
 
-#define BDC_ENCODER_HIGH_LIMIT 100
-#define BDC_ENCODER_LOW_LIMIT -100
+#define BDC_PCNT_ENCODER_HIGH_LIMIT 100
+#define BDC_PCNT_ENCODER_LOW_LIMIT -100
 
 
  
@@ -268,11 +268,11 @@ void left_encoder_init(motor_ctrl_timer_context_t *my_timer_ctx) {
 
   //create actual B channels
   pcnt_channel_handle_t FL_pcnt_chan_b = NULL;
-  ESP_ERROR_CHECK(pcnt_new_channel(FL_pcnt_unit, &FL_chan_b_config, FL_pcnt_chan_b));
+  ESP_ERROR_CHECK(pcnt_new_channel(FL_pcnt_unit, &FL_chan_b_config, &FL_pcnt_chan_b));
   pcnt_channel_handle_t ML_pcnt_chan_b = NULL;
-  ESP_ERROR_CHECK(pcnt_new_channel(ML_pcnt_unit, &ML_chan_b_config, ML_pcnt_chan_b));
-  pcnt_channel_handle_t FL_pcnt_chan_b = NULL;
-  ESP_ERROR_CHECK(pcnt_new_channel(BL_pcnt_unit, &BL_chan_b_config, BL_pcnt_chan_b));
+  ESP_ERROR_CHECK(pcnt_new_channel(ML_pcnt_unit, &ML_chan_b_config, &ML_pcnt_chan_b));
+  pcnt_channel_handle_t BL_pcnt_chan_b = NULL;
+  ESP_ERROR_CHECK(pcnt_new_channel(BL_pcnt_unit, &BL_chan_b_config, &BL_pcnt_chan_b));
 
   //Set up edge & channel events for each channel
   //A Channels:
@@ -291,12 +291,12 @@ void left_encoder_init(motor_ctrl_timer_context_t *my_timer_ctx) {
   ESP_ERROR_CHECK(pcnt_channel_set_level_action(ML_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
   ESP_ERROR_CHECK(pcnt_channel_set_level_action(BL_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
 
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FL_pcnt_unit, BDC_ENCODER_PCNT_HIGH_LIMIT));
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FL_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(ML_pcnt_unit, BDC_ENCODER_PCNT_HIGH_LIMIT));
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(ML_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BL_pcnt_unit, BDC_ENCODER_PCNT_HIGH_LIMIT));
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BL_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FL_pcnt_unit, BDC_PCNT_ENCODER_HIGH_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FL_pcnt_unit, BDC_PCNT_ENCODER_LOW_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(ML_pcnt_unit, BDC_PCNT_ENCODER_HIGH_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(ML_pcnt_unit, BDC_PCNT_ENCODER_LOW_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BL_pcnt_unit, BDC_PCNT_ENCODER_HIGH_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BL_pcnt_unit, BDC_PCNT_ENCODER_LOW_LIMIT));
   
   pcnt_event_callbacks_t FL_pcnt_cbs = {
     .on_reach = FL_pcnt_on_reach,
@@ -310,9 +310,9 @@ void left_encoder_init(motor_ctrl_timer_context_t *my_timer_ctx) {
 
 //-----NEED TO CHECK my_timer_ctx
 
-  ESP_ERROR_CHECK(FL_pcnt_unit_register_event_callbacks(FL_pcnt_unit, &FL_pcnt_cbs, my_timer_ctx));
-  ESP_ERROR_CHECK(ML_pcnt_unit_register_event_callbacks(ML_pcnt_unit, &ML_pcnt_cbs, my_timer_ctx));
-  ESP_ERROR_CHECK(BL_pcnt_unit_register_event_callbacks(BL_pcnt_unit, &BL_pcnt_cbs, my_timer_ctx));
+  ESP_ERROR_CHECK(pcnt_unit_register_event_callbacks(FL_pcnt_unit, &FL_pcnt_cbs, my_timer_ctx));
+  ESP_ERROR_CHECK(pcnt_unit_register_event_callbacks(ML_pcnt_unit, &ML_pcnt_cbs, my_timer_ctx));
+  ESP_ERROR_CHECK(pcnt_unit_register_event_callbacks(BL_pcnt_unit, &BL_pcnt_cbs, my_timer_ctx));
   ESP_ERROR_CHECK(pcnt_unit_clear_count(FL_pcnt_unit));
   ESP_ERROR_CHECK(pcnt_unit_clear_count(ML_pcnt_unit));
   ESP_ERROR_CHECK(pcnt_unit_clear_count(BL_pcnt_unit));
@@ -392,37 +392,37 @@ pcnt_unit_config_t config = {
 
   //create actual B channrels
   pcnt_channel_handle_t FR_pcnt_chan_b = NULL;
-  ESP_ERROR_CHECK(pcnt_new_channel(FR_pcnt_unit, &FR_chan_b_config, FR_pcnt_chan_b));
+  ESP_ERROR_CHECK(pcnt_new_channel(FR_pcnt_unit, &FR_chan_b_config, &FR_pcnt_chan_b));
   pcnt_channel_handle_t MR_pcnt_chan_b = NULL;
-  ESP_ERROR_CHECK(pcnt_new_channel(MR_pcnt_unit, &MR_chan_b_config, MR_pcnt_chan_b));
+  ESP_ERROR_CHECK(pcnt_new_channel(MR_pcnt_unit, &MR_chan_b_config, &MR_pcnt_chan_b));
   pcnt_channel_handle_t BR_pcnt_chan_b = NULL;
-  ESP_ERROR_CHECK(pcnt_new_channel(BR_pcnt_unit, &BR_chan_b_config, BR_pcnt_chan_b));
+  ESP_ERROR_CHECK(pcnt_new_channel(BR_pcnt_unit, &BR_chan_b_config, &BR_pcnt_chan_b));
 
 
   //TODO: Verify directionality of these for right side vs. left side
   //Set up edge & channel events for each channel
   //A Channels:
-  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(FR_pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
-  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(MR_pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
-  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(BR_pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
+  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(FR_pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
+  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(MR_pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
+  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(BR_pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
   ESP_ERROR_CHECK(pcnt_channel_set_level_action(FR_pcnt_chan_a, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
   ESP_ERROR_CHECK(pcnt_channel_set_level_action(MR_pcnt_chan_a, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
   ESP_ERROR_CHECK(pcnt_channel_set_level_action(BR_pcnt_chan_a, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
 
   //B channels:
-  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(FR_pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
-  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(MR_pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
-  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(BR_pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
+  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(FR_pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
+  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(MR_pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
+  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(BR_pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
   ESP_ERROR_CHECK(pcnt_channel_set_level_action(FR_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
   ESP_ERROR_CHECK(pcnt_channel_set_level_action(MR_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
   ESP_ERROR_CHECK(pcnt_channel_set_level_action(BR_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
 
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FR_pcnt_unit, BDC_ENCODER_PCNT_HIGHT_LIMIT));
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FR_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(MR_pcnt_unit, BDC_ENCODER_PCNT_HIGHT_LIMIT));
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(MR_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BR_pcnt_unit, BDC_ENCODER_PCNT_HIGHT_LIMIT));
-  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BR_pcnt_unit, BDC_ENCODER_PCNT_LOW_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FR_pcnt_unit, BDC_PCNT_ENCODER_HIGH_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(FR_pcnt_unit, BDC_PCNT_ENCODER_LOW_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(MR_pcnt_unit, BDC_PCNT_ENCODER_HIGH_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(MR_pcnt_unit, BDC_PCNT_ENCODER_LOW_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BR_pcnt_unit, BDC_PCNT_ENCODER_HIGH_LIMIT));
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(BR_pcnt_unit, BDC_PCNT_ENCODER_LOW_LIMIT));
   
   pcnt_event_callbacks_t FR_pcnt_cbs = {
     .on_reach = FR_pcnt_on_reach,
@@ -436,9 +436,9 @@ pcnt_unit_config_t config = {
 
 //-----NEED TO CHECK my_timer_ctx
 
-  ESP_ERROR_CHECK(FL_pcnt_unit_register_event_callbacks(FR_pcnt_unit, &FR_pcnt_cbs, my_timer_ctx));
-  ESP_ERROR_CHECK(ML_pcnt_unit_register_event_callbacks(MR_pcnt_unit, &MR_pcnt_cbs, my_timer_ctx));
-  ESP_ERROR_CHECK(ML_pcnt_unit_register_event_callbacks(BR_pcnt_unit, &BR_pcnt_cbs, my_timer_ctx));
+  ESP_ERROR_CHECK(pcnt_unit_register_event_callbacks(FR_pcnt_unit, &FR_pcnt_cbs, my_timer_ctx));
+  ESP_ERROR_CHECK(pcnt_unit_register_event_callbacks(MR_pcnt_unit, &MR_pcnt_cbs, my_timer_ctx));
+  ESP_ERROR_CHECK(pcnt_unit_register_event_callbacks(BR_pcnt_unit, &BR_pcnt_cbs, my_timer_ctx));
   ESP_ERROR_CHECK(pcnt_unit_clear_count(FR_pcnt_unit));
   ESP_ERROR_CHECK(pcnt_unit_clear_count(MR_pcnt_unit));
   ESP_ERROR_CHECK(pcnt_unit_clear_count(BR_pcnt_unit));
@@ -448,7 +448,7 @@ pcnt_unit_config_t config = {
 
   my_timer_ctx->FR_pcnt_encoder = FR_pcnt_unit;
   my_timer_ctx->MR_pcnt_encoder = MR_pcnt_unit;
-  my_timer_ctx->BR_pcnt_Encoder = BR_pcnt_unit;
+  my_timer_ctx->BR_pcnt_encoder = BR_pcnt_unit;
 }
 
 //setup PWM clocks
@@ -477,16 +477,21 @@ static void motor_ctrl_thread(void *arg) {
   pulse_count_t actual_pulses = {};
   while(1) {
     xQueueReceive(user_ctx->pid_feedback_queue, &actual_pulses, portMAX_DELAY);
-
+    printf("Front Left rpm: %d\n", (float)actual_pulses.FL_pulses*2.5);
+    printf("Middle Left rpm: %d\n", (float)actual_pulses.ML_pulses*2.5);
+    printf("Back Left rpm: %d\n", (float)actual_pulses.BL_pulses*2.5);
+    printf("Front Right rpm: %d\n", (float)actual_pulses.FR_pulses*2.5);
+    printf("Middle Right rpm: %d\n", (float)actual_pulses.MR_pulses*2.5);
+    printf("Back Right rpm: %d\n", (float)actual_pulses.BR_pulses*2.5);
     duty_cycles[FRONT_LEFT] = calculate_duty_cycle(actual_pulses.FL_pulses, duty_cycles[FRONT_LEFT]);
     duty_cycles[MIDDLE_LEFT] = calculate_duty_cycle(actual_pulses.ML_pulses, duty_cycles[MIDDLE_LEFT]);
     duty_cycles[BACK_LEFT] = calculate_duty_cycle(actual_pulses.BL_pulses, duty_cycles[BACK_LEFT]);
-    duty_cycles[FRONT_LEFT] = calculate_duty_cycle(actual_pulses.FR_pulses, duty_cycles[FRONT_RIGHT]);
+    duty_cycles[FRONT_RIGHT] = calculate_duty_cycle(actual_pulses.FR_pulses, duty_cycles[FRONT_RIGHT]);
     duty_cycles[MIDDLE_RIGHT] = calculate_duty_cycle(actual_pulses.MR_pulses, duty_cycles[MIDDLE_RIGHT]);
     duty_cycles[BACK_RIGHT] = calculate_duty_cycle(actual_pulses.BR_pulses, duty_cycles[BACK_RIGHT]);
-    printf("BL duty (2): %f\n", duty_cycles[BACK_LEFT]);
+    //printf("BL duty (2): %f\n", duty_cycles[BACK_LEFT]);
     set_duty_cycles();
-    printf("BL duty (3): %f\n", duty_cycles[BACK_LEFT]);
+    //printf("BL duty (3): %f\n", duty_cycles[BACK_LEFT]);
     vTaskDelay(50 / portTICK_PERIOD_MS);
   }
 }
@@ -512,14 +517,14 @@ static bool motor_ctrl_timer_cb(gptimer_handle_t timer, const gptimer_alarm_even
   static int FR_last_pulse_count = 0;
   static int MR_last_pulse_count = 0;
   static int BR_last_pulse_count = 0;
-  BaseType_t high_tast_awoken = pdFALSE;
+  BaseType_t high_task_awoken = pdFALSE;
   motor_ctrl_timer_context_t *user_ctx = (motor_ctrl_timer_context_t *)arg;
   pcnt_unit_handle_t FL_pcnt_unit = user_ctx->FL_pcnt_encoder;
   pcnt_unit_handle_t ML_pcnt_unit = user_ctx->ML_pcnt_encoder;
   pcnt_unit_handle_t BL_pcnt_unit = user_ctx->BL_pcnt_encoder;
-  pcnt_unit_handle_t FR_pcnt_unit = user_ctx->FL_pcnt_encoder;
-  pcnt_unit_handle_t MR_pcnt_unit = user_ctx->ML_pcnt_encoder;
-  pcnt_unit_handle_t BR_pcnt_unit = user_ctx->BL_pcnt_encoder;
+  pcnt_unit_handle_t FR_pcnt_unit = user_ctx->FR_pcnt_encoder;
+  pcnt_unit_handle_t MR_pcnt_unit = user_ctx->MR_pcnt_encoder;
+  pcnt_unit_handle_t BR_pcnt_unit = user_ctx->BR_pcnt_encoder;
 
   int FL_curr_pulse_count = 0;  //may be able to recycle thruout fx
   pcnt_unit_get_count(FL_pcnt_unit, &FL_curr_pulse_count);
@@ -557,7 +562,7 @@ static bool motor_ctrl_timer_cb(gptimer_handle_t timer, const gptimer_alarm_even
   
 
   //send data into queue for retrieval by PID
-  xQueueSendFromISR(user_ctx->pid_feedback_queue, &resp, &high_task_awoken);
+  xQueueSendFromISR(user_ctx->pid_queue, &resp, &high_task_awoken);
   //task management response for RTOS
   return high_task_awoken == pdTRUE;
 }
@@ -583,8 +588,8 @@ void set_direction_backward() {
 
 float calculate_duty_cycle(int pulse_counts, float duty) {
   //return 15.0;
-  if(duty >= 35.0) {
-    return 35.0;
+  if(duty >= 25.0) {
+    return 25.0;
   }
   return duty + 1.0;
 }
@@ -603,7 +608,7 @@ void app_main(void)
   
   static motor_ctrl_timer_context_t my_timer_ctx = {};
   my_timer_ctx.pid_queue = pid_fb_queue;
-  init_all(my_timer_ctx);
+  init_all(&my_timer_ctx);
   //for test, hard set direction to forward for both sides
   //set_direction_forward();
 
@@ -611,4 +616,5 @@ void app_main(void)
   my_task_ctx.pid_feedback_queue = pid_fb_queue;
   set_direction_backward();
   xTaskCreate(motor_ctrl_thread, "motor_ctrl_thread", 4096, &my_task_ctx, 5, NULL);
+  //TODO: add thread to set expected pulses 
 }
