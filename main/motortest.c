@@ -56,6 +56,7 @@
 
 #define BDC_PCNT_ENCODER_HIGH_LIMIT 100
 #define BDC_PCNT_ENCODER_LOW_LIMIT -100
+#define ENCODER_CORRECTION_FACTOR 1.2
 
 
  
@@ -475,14 +476,57 @@ void pwm_initialize() {
 static void motor_ctrl_thread(void *arg) {
   motor_ctrl_task_context_t *user_ctx = (motor_ctrl_task_context_t *) arg;
   pulse_count_t actual_pulses = {};
+  #define pulse_queue_size 10
+  int FL_pulse_queue[pulse_queue_size] = {0};
+  int ML_pulse_queue[pulse_queue_size] = {0};
+  int BL_pulse_queue[pulse_queue_size] = {0};
+  int FR_pulse_queue[pulse_queue_size] = {0};
+  int MR_pulse_queue[pulse_queue_size] = {0};
+  int BR_pulse_queue[pulse_queue_size] = {0};
+  int FL_avg = 0;
+  int ML_avg = 0;
+  int BL_avg = 0;
+  int FR_avg = 0;
+  int MR_avg = 0;
+  int BR_avg = 0;
+  int i = 0;
   while(1) {
     xQueueReceive(user_ctx->pid_feedback_queue, &actual_pulses, portMAX_DELAY);
-    printf("Front Left rpm: %d\n", (float)actual_pulses.FL_pulses*2.5);
-    printf("Middle Left rpm: %d\n", (float)actual_pulses.ML_pulses*2.5);
-    printf("Back Left rpm: %d\n", (float)actual_pulses.BL_pulses*2.5);
-    printf("Front Right rpm: %d\n", (float)actual_pulses.FR_pulses*2.5);
-    printf("Middle Right rpm: %d\n", (float)actual_pulses.MR_pulses*2.5);
-    printf("Back Right rpm: %d\n", (float)actual_pulses.BR_pulses*2.5);
+    if(i >= pulse_queue_size) {
+      i = 0;
+    } 
+
+      FL_avg = FL_avg - FL_pulse_queue[i];
+      ML_avg = ML_avg - ML_pulse_queue[i];
+      BL_avg = BL_avg - BL_pulse_queue[i];
+      FR_avg = FR_avg - FR_pulse_queue[i];
+      MR_avg = MR_avg - MR_pulse_queue[i];
+      BR_avg = BR_avg - BR_pulse_queue[i];
+
+      FL_pulse_queue[i] = actual_pulses.FL_pulses;
+      ML_pulse_queue[i] = actual_pulses.ML_pulses;
+      BL_pulse_queue[i] = actual_pulses.BL_pulses;
+      FR_pulse_queue[i] = actual_pulses.FR_pulses;
+      MR_pulse_queue[i] = actual_pulses.MR_pulses;
+      BR_pulse_queue[i] = actual_pulses.BR_pulses;
+      
+      //calculate avg and print
+      //for (int j = 0; j < pulse_queue_size; j++){
+      FL_avg += FL_pulse_queue[i];
+      ML_avg += ML_pulse_queue[i];
+      BL_avg += BL_pulse_queue[i];
+      FR_avg += FR_pulse_queue[i];
+      MR_avg += MR_pulse_queue[i];
+      BR_avg += BR_pulse_queue[i];
+      //}
+      printf("Front Left rpm: %f\n", (float)FL_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
+      printf("Middle Left rpm: %f\n", (float)ML_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
+      printf("Back Left rpm: %f\n", (float)BL_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
+      printf("Front Right rpm: %f\n", (float)FR_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
+      printf("Middle Right rpm: %f\n", (float)MR_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
+      printf("Back Right rpm: %f\n", (float)BR_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
+      i++;
+    
     duty_cycles[FRONT_LEFT] = calculate_duty_cycle(actual_pulses.FL_pulses, duty_cycles[FRONT_LEFT]);
     duty_cycles[MIDDLE_LEFT] = calculate_duty_cycle(actual_pulses.ML_pulses, duty_cycles[MIDDLE_LEFT]);
     duty_cycles[BACK_LEFT] = calculate_duty_cycle(actual_pulses.BL_pulses, duty_cycles[BACK_LEFT]);
@@ -490,13 +534,28 @@ static void motor_ctrl_thread(void *arg) {
     duty_cycles[MIDDLE_RIGHT] = calculate_duty_cycle(actual_pulses.MR_pulses, duty_cycles[MIDDLE_RIGHT]);
     duty_cycles[BACK_RIGHT] = calculate_duty_cycle(actual_pulses.BR_pulses, duty_cycles[BACK_RIGHT]);
     //printf("BL duty (2): %f\n", duty_cycles[BACK_LEFT]);
+    // printf("FL: %d", gpio_get_level(GPIO_LEFT_0_DIR));
+    // printf("ML: %d", gpio_get_level(GPIO_LEFT_1_DIR));
+    // printf("BL: %d", gpio_get_level(GPIO_LEFT_2_DIR));
+    // printf("FR: %d", gpio_get_level(GPIO_RIGHT_0_DIR));
+    // printf("MR: %d", gpio_get_level(GPIO_RIGHT_1_DIR));
+    // printf("BR: %d", gpio_get_level(GPIO_RIGHT_2_DIR));
     set_duty_cycles();
     //printf("BL duty (3): %f\n", duty_cycles[BACK_LEFT]);
     vTaskDelay(50 / portTICK_PERIOD_MS);
   }
 }
+/*
+void change_direction() {
+  //stop unit
+  //change direction
+  //restart unit 
+}*/
 
 static void set_duty_cycles() {
+  //TODO: fix directional blindness 
+  //      - allow for duty cycles floats to be positive or negative, adjust in calculations by setting GPIO pins
+  //      - check direction or set direction?  
   //set left side PWMs
   mcpwm_set_duty(LEFT_MOTOR_UNIT, MCPWM_TIMER_0, OPERATOR, duty_cycles[FRONT_LEFT]);
   mcpwm_set_duty(LEFT_MOTOR_UNIT, MCPWM_TIMER_1, OPERATOR, duty_cycles[MIDDLE_LEFT]);
@@ -569,15 +628,6 @@ static bool motor_ctrl_timer_cb(gptimer_handle_t timer, const gptimer_alarm_even
 
 void set_direction_forward() {
   //fix -- change to #defined flags
-  gpio_set_level(GPIO_LEFT_0_DIR, 0);
-  gpio_set_level(GPIO_LEFT_1_DIR, 0);
-  gpio_set_level(GPIO_LEFT_2_DIR, 0);
-  gpio_set_level(GPIO_RIGHT_0_DIR, 1);
-  gpio_set_level(GPIO_RIGHT_1_DIR, 1);
-  gpio_set_level(GPIO_RIGHT_2_DIR, 1);
-}
-
-void set_direction_backward() {
   gpio_set_level(GPIO_LEFT_0_DIR, 1);
   gpio_set_level(GPIO_LEFT_1_DIR, 1);
   gpio_set_level(GPIO_LEFT_2_DIR, 1);
@@ -586,11 +636,31 @@ void set_direction_backward() {
   gpio_set_level(GPIO_RIGHT_2_DIR, 0);
 }
 
-float calculate_duty_cycle(int pulse_counts, float duty) {
-  //return 15.0;
-  if(duty >= 25.0) {
-    return 25.0;
+void set_direction_backward() {
+  gpio_set_level(GPIO_LEFT_0_DIR, 0);
+  gpio_set_level(GPIO_LEFT_1_DIR, 0);
+  gpio_set_level(GPIO_LEFT_2_DIR, 0);
+  gpio_set_level(GPIO_RIGHT_0_DIR, 1);
+  gpio_set_level(GPIO_RIGHT_1_DIR, 1);
+  gpio_set_level(GPIO_RIGHT_2_DIR, 1);
+}
+
+float calculate_duty_cycle(int pulse_counts, float duty) {  //probs going to need to change pulse_counts to a float
+  //return 0.0;
+  //max protection
+  if(duty >= 45.0) {
+    return 45.0;
   }
+  //incremental control
+
+  // //incremental control
+  // if(pulse_counts > set_point){
+  //   return duty - 1.0;
+  // }
+  // if (pulse_counts < set_point){
+  //   return duty + 1.0;
+  // }
+
   return duty + 1.0;
 }
   
@@ -610,11 +680,17 @@ void app_main(void)
   my_timer_ctx.pid_queue = pid_fb_queue;
   init_all(&my_timer_ctx);
   //for test, hard set direction to forward for both sides
-  //set_direction_forward();
+  set_direction_forward();
 
   static motor_ctrl_task_context_t my_task_ctx = {};
   my_task_ctx.pid_feedback_queue = pid_fb_queue;
-  set_direction_backward();
+  //set_direction_backward();
+  // gpio_set_level(GPIO_LEFT_0_DIR, 1);
+  // gpio_set_level(GPIO_LEFT_1_DIR, 1);
+  // gpio_set_level(GPIO_LEFT_2_DIR, 1);
+  // gpio_set_level(GPIO_RIGHT_0_DIR, 0);
+  // gpio_set_level(GPIO_RIGHT_1_DIR, 0);
+  // gpio_set_level(GPIO_RIGHT_2_DIR, 0);
   xTaskCreate(motor_ctrl_thread, "motor_ctrl_thread", 4096, &my_task_ctx, 5, NULL);
   //TODO: add thread to set expected pulses 
 }
