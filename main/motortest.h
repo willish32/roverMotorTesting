@@ -46,6 +46,15 @@ typedef struct {
     // pid_ctrl_block_handle_t BR_pid_ctrl;
 } motor_ctrl_task_context_t;
 
+typedef struct {
+    int FL_expect_pulse;
+    int ML_expect_pulse;
+    int BL_expect_pulse;
+    int FR_expect_pulse;
+    int MR_expect_pulse;
+    int BR_expect_pulse;
+} setpoint_context_t;
+
 void gpio_initialize();
 static void test_timer_init(motor_ctrl_timer_context_t *my_timer_ctx);
 static bool FL_pcnt_on_reach(pcnt_unit_handle_t unit, pcnt_watch_event_data_t *edata, void *user_ctx);
@@ -62,6 +71,6 @@ void right_encoder_init(motor_ctrl_timer_context_t *my_timer_ctx);
 static bool motor_ctrl_timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *arg);
 void set_direction_forward();
 void set_direction_backward();
-float calculate_duty_cycle(int pulse_counts, float duty);
+float calculate_duty_cycle(float pulse_counts, float duty);
 static void set_duty_cycles();
 

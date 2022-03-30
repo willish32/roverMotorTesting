@@ -483,25 +483,32 @@ static void motor_ctrl_thread(void *arg) {
   int FR_pulse_queue[pulse_queue_size] = {0};
   int MR_pulse_queue[pulse_queue_size] = {0};
   int BR_pulse_queue[pulse_queue_size] = {0};
-  int FL_avg = 0;
-  int ML_avg = 0;
-  int BL_avg = 0;
-  int FR_avg = 0;
-  int MR_avg = 0;
-  int BR_avg = 0;
+  // int FL_avg = 0;
+  // int ML_avg = 0;
+  // int BL_avg = 0;
+  // int FR_avg = 0;
+  // int MR_avg = 0;
+  // int BR_avg = 0;
+  int ENCODER_SUM[6] = {0};
+  float ENCODER_AVG[6] = {0.0};
+  //float ENCODER_SET_POINT[6] = {50.0, 50.0, 50.0, 50.0, 50.0, 50.0}; //set RPM for 50; will prob have to be moved
   int i = 0;
+  int j = 0;
+  bool flag = false;
+  float adjusted_length = 1.0;
   while(1) {
     xQueueReceive(user_ctx->pid_feedback_queue, &actual_pulses, portMAX_DELAY);
     if(i >= pulse_queue_size) {
       i = 0;
+      flag = true;
     } 
 
-      FL_avg = FL_avg - FL_pulse_queue[i];
-      ML_avg = ML_avg - ML_pulse_queue[i];
-      BL_avg = BL_avg - BL_pulse_queue[i];
-      FR_avg = FR_avg - FR_pulse_queue[i];
-      MR_avg = MR_avg - MR_pulse_queue[i];
-      BR_avg = BR_avg - BR_pulse_queue[i];
+      ENCODER_SUM[FRONT_LEFT] = ENCODER_SUM[FRONT_LEFT] - FL_pulse_queue[i];
+      ENCODER_SUM[MIDDLE_LEFT] = ENCODER_SUM[MIDDLE_LEFT] - ML_pulse_queue[i];
+      ENCODER_SUM[BACK_LEFT] = ENCODER_SUM[BACK_LEFT] - BL_pulse_queue[i];
+      ENCODER_SUM[FRONT_RIGHT] = ENCODER_SUM[FRONT_RIGHT] - FR_pulse_queue[i];
+      ENCODER_SUM[MIDDLE_RIGHT] = ENCODER_SUM[MIDDLE_RIGHT] - MR_pulse_queue[i];
+      ENCODER_SUM[BACK_RIGHT] = ENCODER_SUM[BACK_RIGHT] - BR_pulse_queue[i];
 
       FL_pulse_queue[i] = actual_pulses.FL_pulses;
       ML_pulse_queue[i] = actual_pulses.ML_pulses;
@@ -510,29 +517,55 @@ static void motor_ctrl_thread(void *arg) {
       MR_pulse_queue[i] = actual_pulses.MR_pulses;
       BR_pulse_queue[i] = actual_pulses.BR_pulses;
       
-      //calculate avg and print
+      //calculate new sum
       //for (int j = 0; j < pulse_queue_size; j++){
-      FL_avg += FL_pulse_queue[i];
-      ML_avg += ML_pulse_queue[i];
-      BL_avg += BL_pulse_queue[i];
-      FR_avg += FR_pulse_queue[i];
-      MR_avg += MR_pulse_queue[i];
-      BR_avg += BR_pulse_queue[i];
+      ENCODER_SUM[FRONT_LEFT] += FL_pulse_queue[i];
+      ENCODER_SUM[MIDDLE_LEFT] += ML_pulse_queue[i];
+      ENCODER_SUM[BACK_LEFT] += BL_pulse_queue[i];
+      ENCODER_SUM[FRONT_RIGHT] += FR_pulse_queue[i];
+      ENCODER_SUM[MIDDLE_RIGHT] += MR_pulse_queue[i];
+      ENCODER_SUM[BACK_RIGHT] += BR_pulse_queue[i];
+
+      if(flag) {
+        adjusted_length = (float)pulse_queue_size;
+      } else {
+        adjusted_length = (float)(i+1);
+      }
+
+      //calculate new average
+      ENCODER_AVG[FRONT_LEFT] = (float)ENCODER_SUM[FRONT_LEFT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
+      ENCODER_AVG[MIDDLE_LEFT] = (float)ENCODER_SUM[MIDDLE_LEFT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
+      ENCODER_AVG[BACK_LEFT] = (float)ENCODER_SUM[BACK_LEFT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
+      ENCODER_AVG[FRONT_RIGHT] = (float)ENCODER_SUM[FRONT_RIGHT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
+      ENCODER_AVG[MIDDLE_RIGHT] = (float)ENCODER_SUM[MIDDLE_RIGHT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
+      ENCODER_AVG[BACK_RIGHT] = (float)ENCODER_SUM[BACK_RIGHT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
+
       //}
-      printf("Front Left rpm: %f\n", (float)FL_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
-      printf("Middle Left rpm: %f\n", (float)ML_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
-      printf("Back Left rpm: %f\n", (float)BL_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
-      printf("Front Right rpm: %f\n", (float)FR_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
-      printf("Middle Right rpm: %f\n", (float)MR_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
-      printf("Back Right rpm: %f\n", (float)BR_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
+      //printf("Front Left rpm: %f\n", (float)FL_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
+      //printf("Middle Left rpm: %f\n", (float)ML_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
+      //printf("Back Left rpm: %f\n", (float)BL_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
+      //printf("Front Right rpm: %f\n", (float)FR_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
+      //printf("Middle Right rpm: %f\n", (float)MR_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
+      //printf("Back Right rpm: %f\n", (float)BR_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
+      printf("%f,", ENCODER_AVG[FRONT_LEFT]);
+      printf("%f,", ENCODER_AVG[MIDDLE_LEFT]);
+      printf("%f,", ENCODER_AVG[BACK_LEFT]);
+      printf("%f,", ENCODER_AVG[FRONT_RIGHT]);
+      printf("%f,", ENCODER_AVG[MIDDLE_RIGHT]);
+      printf("%f\n", ENCODER_AVG[BACK_RIGHT]);
       i++;
-    
-    duty_cycles[FRONT_LEFT] = calculate_duty_cycle(actual_pulses.FL_pulses, duty_cycles[FRONT_LEFT]);
-    duty_cycles[MIDDLE_LEFT] = calculate_duty_cycle(actual_pulses.ML_pulses, duty_cycles[MIDDLE_LEFT]);
-    duty_cycles[BACK_LEFT] = calculate_duty_cycle(actual_pulses.BL_pulses, duty_cycles[BACK_LEFT]);
-    duty_cycles[FRONT_RIGHT] = calculate_duty_cycle(actual_pulses.FR_pulses, duty_cycles[FRONT_RIGHT]);
-    duty_cycles[MIDDLE_RIGHT] = calculate_duty_cycle(actual_pulses.MR_pulses, duty_cycles[MIDDLE_RIGHT]);
-    duty_cycles[BACK_RIGHT] = calculate_duty_cycle(actual_pulses.BR_pulses, duty_cycles[BACK_RIGHT]);
+    if (j < 10) {
+      j++;
+      continue;
+    }
+    j = 0;
+    duty_cycles[FRONT_LEFT] = calculate_duty_cycle(ENCODER_AVG[FRONT_LEFT], duty_cycles[FRONT_LEFT]);
+    duty_cycles[MIDDLE_LEFT] = calculate_duty_cycle(ENCODER_AVG[MIDDLE_LEFT], duty_cycles[MIDDLE_LEFT]);
+    duty_cycles[BACK_LEFT] = calculate_duty_cycle(ENCODER_AVG[BACK_LEFT], duty_cycles[BACK_LEFT]);
+    duty_cycles[FRONT_RIGHT] = calculate_duty_cycle(ENCODER_AVG[FRONT_RIGHT], duty_cycles[FRONT_RIGHT]);
+    duty_cycles[MIDDLE_RIGHT] = calculate_duty_cycle(ENCODER_AVG[MIDDLE_RIGHT], duty_cycles[MIDDLE_RIGHT]);
+    duty_cycles[BACK_RIGHT] = calculate_duty_cycle(ENCODER_AVG[BACK_RIGHT], duty_cycles[BACK_RIGHT]);
+    //printf("DUTY: %f\n", duty_cycles[FRONT_RIGHT]);
     //printf("BL duty (2): %f\n", duty_cycles[BACK_LEFT]);
     // printf("FL: %d", gpio_get_level(GPIO_LEFT_0_DIR));
     // printf("ML: %d", gpio_get_level(GPIO_LEFT_1_DIR));
@@ -645,23 +678,34 @@ void set_direction_backward() {
   gpio_set_level(GPIO_RIGHT_2_DIR, 1);
 }
 
-float calculate_duty_cycle(int pulse_counts, float duty) {  //probs going to need to change pulse_counts to a float
+float calculate_duty_cycle(float pulse_counts, float duty) {  //probs going to need to change pulse_counts to a float
+  #define set_point 40.0  //placeholder cause im lazy
+  #define pad_number 3.5  //again, lazy
+  #define max_duty 60.0
   //return 0.0;
   //max protection
-  if(duty >= 45.0) {
-    return 45.0;
-  }
+  // if(duty >= 40.0) {
+  //   return 40.0;
+  // }
+
   //incremental control
+  if((abs(pulse_counts) < (set_point + pad_number)) && (abs(pulse_counts) > set_point - pad_number)){
+    return duty;
+  }
+  if(abs(pulse_counts) > (set_point + pad_number)){
+    if ((duty - 1.0) <= 0.0){
+      return 0.0;
+    }
+    return duty - 1.0;
+  }
+  if (abs(pulse_counts) < (set_point - pad_number)){
+    if ((duty + 1.0) >= max_duty){
+      return duty;
+    }
+    return duty + 1.0;
+  }
 
-  // //incremental control
-  // if(pulse_counts > set_point){
-  //   return duty - 1.0;
-  // }
-  // if (pulse_counts < set_point){
-  //   return duty + 1.0;
-  // }
-
-  return duty + 1.0;
+  return duty;
 }
   
 /*
@@ -681,10 +725,10 @@ void app_main(void)
   init_all(&my_timer_ctx);
   //for test, hard set direction to forward for both sides
   set_direction_forward();
-
+  //set_direction_backward();
+  
   static motor_ctrl_task_context_t my_task_ctx = {};
   my_task_ctx.pid_feedback_queue = pid_fb_queue;
-  //set_direction_backward();
   // gpio_set_level(GPIO_LEFT_0_DIR, 1);
   // gpio_set_level(GPIO_LEFT_1_DIR, 1);
   // gpio_set_level(GPIO_LEFT_2_DIR, 1);
