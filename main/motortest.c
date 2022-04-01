@@ -33,6 +33,9 @@
 #define FRONT_RIGHT   3
 #define MIDDLE_RIGHT  4
 #define BACK_RIGHT    5
+//INDEX references for set points
+#define LEFT_SIDE     0
+#define RIGHT_SIDE    1
 //run each side of motors off a single 3 pwm unit
 #define LEFT_MOTOR_UNIT MCPWM_UNIT_0
 #define RIGHT_MOTOR_UNIT MCPWM_UNIT_1
@@ -61,6 +64,7 @@
 
  
 float duty_cycles[6] = {0.0,0.0,0.0,0.0,0.0,0.0};
+float set_point[2] = {40.0,40.0}; //motor RPM setpoint
 
 
 void init_all(motor_ctrl_timer_context_t *my_timer_ctx) {
@@ -483,15 +487,8 @@ static void motor_ctrl_thread(void *arg) {
   int FR_pulse_queue[pulse_queue_size] = {0};
   int MR_pulse_queue[pulse_queue_size] = {0};
   int BR_pulse_queue[pulse_queue_size] = {0};
-  // int FL_avg = 0;
-  // int ML_avg = 0;
-  // int BL_avg = 0;
-  // int FR_avg = 0;
-  // int MR_avg = 0;
-  // int BR_avg = 0;
   int ENCODER_SUM[6] = {0};
   float ENCODER_AVG[6] = {0.0};
-  //float ENCODER_SET_POINT[6] = {50.0, 50.0, 50.0, 50.0, 50.0, 50.0}; //set RPM for 50; will prob have to be moved
   int i = 0;
   int j = 0;
   bool flag = false;
@@ -502,7 +499,7 @@ static void motor_ctrl_thread(void *arg) {
       i = 0;
       flag = true;
     } 
-
+      //subtract oldest encoder counts from sum
       ENCODER_SUM[FRONT_LEFT] = ENCODER_SUM[FRONT_LEFT] - FL_pulse_queue[i];
       ENCODER_SUM[MIDDLE_LEFT] = ENCODER_SUM[MIDDLE_LEFT] - ML_pulse_queue[i];
       ENCODER_SUM[BACK_LEFT] = ENCODER_SUM[BACK_LEFT] - BL_pulse_queue[i];
@@ -510,6 +507,7 @@ static void motor_ctrl_thread(void *arg) {
       ENCODER_SUM[MIDDLE_RIGHT] = ENCODER_SUM[MIDDLE_RIGHT] - MR_pulse_queue[i];
       ENCODER_SUM[BACK_RIGHT] = ENCODER_SUM[BACK_RIGHT] - BR_pulse_queue[i];
 
+      //retrieve new encoder counts
       FL_pulse_queue[i] = actual_pulses.FL_pulses;
       ML_pulse_queue[i] = actual_pulses.ML_pulses;
       BL_pulse_queue[i] = actual_pulses.BL_pulses;
@@ -518,7 +516,6 @@ static void motor_ctrl_thread(void *arg) {
       BR_pulse_queue[i] = actual_pulses.BR_pulses;
       
       //calculate new sum
-      //for (int j = 0; j < pulse_queue_size; j++){
       ENCODER_SUM[FRONT_LEFT] += FL_pulse_queue[i];
       ENCODER_SUM[MIDDLE_LEFT] += ML_pulse_queue[i];
       ENCODER_SUM[BACK_LEFT] += BL_pulse_queue[i];
@@ -540,7 +537,6 @@ static void motor_ctrl_thread(void *arg) {
       ENCODER_AVG[MIDDLE_RIGHT] = (float)ENCODER_SUM[MIDDLE_RIGHT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[BACK_RIGHT] = (float)ENCODER_SUM[BACK_RIGHT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
 
-      //}
       //printf("Front Left rpm: %f\n", (float)FL_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
       //printf("Middle Left rpm: %f\n", (float)ML_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
       //printf("Back Left rpm: %f\n", (float)BL_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
@@ -559,31 +555,39 @@ static void motor_ctrl_thread(void *arg) {
       continue;
     }
     j = 0;
-    duty_cycles[FRONT_LEFT] = calculate_duty_cycle(ENCODER_AVG[FRONT_LEFT], duty_cycles[FRONT_LEFT]);
-    duty_cycles[MIDDLE_LEFT] = calculate_duty_cycle(ENCODER_AVG[MIDDLE_LEFT], duty_cycles[MIDDLE_LEFT]);
-    duty_cycles[BACK_LEFT] = calculate_duty_cycle(ENCODER_AVG[BACK_LEFT], duty_cycles[BACK_LEFT]);
-    duty_cycles[FRONT_RIGHT] = calculate_duty_cycle(ENCODER_AVG[FRONT_RIGHT], duty_cycles[FRONT_RIGHT]);
-    duty_cycles[MIDDLE_RIGHT] = calculate_duty_cycle(ENCODER_AVG[MIDDLE_RIGHT], duty_cycles[MIDDLE_RIGHT]);
-    duty_cycles[BACK_RIGHT] = calculate_duty_cycle(ENCODER_AVG[BACK_RIGHT], duty_cycles[BACK_RIGHT]);
-    //printf("DUTY: %f\n", duty_cycles[FRONT_RIGHT]);
-    //printf("BL duty (2): %f\n", duty_cycles[BACK_LEFT]);
-    // printf("FL: %d", gpio_get_level(GPIO_LEFT_0_DIR));
-    // printf("ML: %d", gpio_get_level(GPIO_LEFT_1_DIR));
-    // printf("BL: %d", gpio_get_level(GPIO_LEFT_2_DIR));
-    // printf("FR: %d", gpio_get_level(GPIO_RIGHT_0_DIR));
-    // printf("MR: %d", gpio_get_level(GPIO_RIGHT_1_DIR));
-    // printf("BR: %d", gpio_get_level(GPIO_RIGHT_2_DIR));
+    //compare duty cycles to set point to check for direction change here
+    //this may break, if it does we need to store previous setpoints... but i think it will be fine
+    //if necessary we can offload some of this logic to the change_direction fx
+    //only compare the FL and FR odoms for SPEED
+    for (int w = 0; w < 4; w = w + 3){
+      int k = 0;  //need a different index for set points
+      //right now, the change direction fx is called when the setpoint has an opposite sign as the odom reading, and if odom is zero and the setpoint is nonzero
+      if (((set_point[k] > 0.0) != (ENCODER_AVG[w] > 0.0) && (set_point[k] != 0.0)) || ((ENCODER_AVG[w] == 0.0) && (set_point[k] != ENCODER_AVG[w]))){
+      //change_direction();
+    }
+    k++;
+    }
+
+    //calculate new duty cycles
+    //TODO: SIMPLIFY SET POINTS TO ONE FOR LEFT SIDE AND ONE FOR RIGHT SIDE
+    duty_cycles[FRONT_LEFT] = calculate_duty_cycle(ENCODER_AVG[FRONT_LEFT], duty_cycles[FRONT_LEFT], set_point[LEFT_SIDE]);
+    duty_cycles[MIDDLE_LEFT] = calculate_duty_cycle(ENCODER_AVG[MIDDLE_LEFT], duty_cycles[MIDDLE_LEFT], set_point[LEFT_SIDE]);
+    duty_cycles[BACK_LEFT] = calculate_duty_cycle(ENCODER_AVG[BACK_LEFT], duty_cycles[BACK_LEFT], set_point[LEFT_SIDE]);
+    duty_cycles[FRONT_RIGHT] = calculate_duty_cycle(ENCODER_AVG[FRONT_RIGHT], duty_cycles[FRONT_RIGHT], set_point[RIGHT_SIDE]);
+    duty_cycles[MIDDLE_RIGHT] = calculate_duty_cycle(ENCODER_AVG[MIDDLE_RIGHT], duty_cycles[MIDDLE_RIGHT], set_point[RIGHT_SIDE]);
+    duty_cycles[BACK_RIGHT] = calculate_duty_cycle(ENCODER_AVG[BACK_RIGHT], duty_cycles[BACK_RIGHT], set_point[RIGHT_SIDE]);
     set_duty_cycles();
-    //printf("BL duty (3): %f\n", duty_cycles[BACK_LEFT]);
     vTaskDelay(50 / portTICK_PERIOD_MS);
   }
 }
-/*
+
+//we could add a direction flag to not run through the logic every time... might be important as im not sure
+//if writing direction pins continuously while encoder is 0 would be good
 void change_direction() {
   //stop unit
   //change direction
   //restart unit 
-}*/
+}
 
 static void set_duty_cycles() {
   //TODO: fix directional blindness 
@@ -678,28 +682,41 @@ void set_direction_backward() {
   gpio_set_level(GPIO_RIGHT_2_DIR, 1);
 }
 
-float calculate_duty_cycle(float pulse_counts, float duty) {  //probs going to need to change pulse_counts to a float
-  #define set_point 40.0  //placeholder cause im lazy
-  #define pad_number 3.5  //again, lazy
-  #define max_duty 60.0
-  //return 0.0;
-  //max protection
-  // if(duty >= 40.0) {
-  //   return 40.0;
-  // }
+void set_direction_left() {
+  gpio_set_level(GPIO_LEFT_0_DIR, 0);
+  gpio_set_level(GPIO_LEFT_1_DIR, 0);
+  gpio_set_level(GPIO_LEFT_2_DIR, 0);
+  gpio_set_level(GPIO_RIGHT_0_DIR, 0);
+  gpio_set_level(GPIO_RIGHT_1_DIR, 0);
+  gpio_set_level(GPIO_RIGHT_2_DIR, 0);
+}
+
+void set_direction_right() {
+  gpio_set_level(GPIO_LEFT_0_DIR, 1);
+  gpio_set_level(GPIO_LEFT_1_DIR, 1);
+  gpio_set_level(GPIO_LEFT_2_DIR, 1);
+  gpio_set_level(GPIO_RIGHT_0_DIR, 1);
+  gpio_set_level(GPIO_RIGHT_1_DIR, 1);
+  gpio_set_level(GPIO_RIGHT_2_DIR, 1);
+}
+
+float calculate_duty_cycle(float pulse_counts, float duty, float set_point) {  //probs going to need to change pulse_counts to a float
+  //#define set_point 50.0  //placeholder cause im lazy
+  #define PAD 4.0  //+- for RPM acceptance
+  #define MAX_RPM 60.0  //maximum allowable RPM
 
   //incremental control
-  if((abs(pulse_counts) < (set_point + pad_number)) && (abs(pulse_counts) > set_point - pad_number)){
+  if((abs(pulse_counts) < (set_point + PAD)) && (abs(pulse_counts) > set_point - PAD)){
     return duty;
   }
-  if(abs(pulse_counts) > (set_point + pad_number)){
+  if(abs(pulse_counts) > (set_point + PAD)){
     if ((duty - 1.0) <= 0.0){
       return 0.0;
     }
     return duty - 1.0;
   }
-  if (abs(pulse_counts) < (set_point - pad_number)){
-    if ((duty + 1.0) >= max_duty){
+  if (abs(pulse_counts) < (set_point - PAD)){
+    if ((duty + 1.0) >= MAX_RPM){
       return duty;
     }
     return duty + 1.0;
@@ -726,6 +743,8 @@ void app_main(void)
   //for test, hard set direction to forward for both sides
   set_direction_forward();
   //set_direction_backward();
+  //set_direction_left();
+  //set_direction_right();
   
   static motor_ctrl_task_context_t my_task_ctx = {};
   my_task_ctx.pid_feedback_queue = pid_fb_queue;
