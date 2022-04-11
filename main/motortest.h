@@ -71,6 +71,9 @@ void right_encoder_init(motor_ctrl_timer_context_t *my_timer_ctx);
 static bool motor_ctrl_timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *arg);
 void set_direction_forward();
 void set_direction_backward();
+void set_direction_left();
+void set_direction_right();
 float calculate_duty_cycle(float pulse_counts, float duty, float set_point);
 static void set_duty_cycles();
+void change_direction(float left_setpoint, float right_setpoint);
 

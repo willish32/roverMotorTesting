@@ -64,7 +64,9 @@
 
  
 float duty_cycles[6] = {0.0,0.0,0.0,0.0,0.0,0.0};
-float set_point[2] = {40.0,40.0}; //motor RPM setpoint
+float set_point[2] = {50.0,50.0}; //motor RPM setpoint
+float temp_set_point[2] = {0.0,0.0}; //temporary setpoint for changing direction
+bool CHANGE_DIR_FLAG = false;
 
 
 void init_all(motor_ctrl_timer_context_t *my_timer_ctx) {
@@ -562,14 +564,21 @@ static void motor_ctrl_thread(void *arg) {
     for (int w = 0; w < 4; w = w + 3){
       int k = 0;  //need a different index for set points
       //right now, the change direction fx is called when the setpoint has an opposite sign as the odom reading, and if odom is zero and the setpoint is nonzero
-      if (((set_point[k] > 0.0) != (ENCODER_AVG[w] > 0.0) && (set_point[k] != 0.0)) || ((ENCODER_AVG[w] == 0.0) && (set_point[k] != ENCODER_AVG[w]))){
-      //change_direction();
+      if ((((set_point[k] > 0.0) != (ENCODER_AVG[w] > 0.0) && (set_point[k] != 0.0)) || ((ENCODER_AVG[w] == 0.0) && (set_point[k] != ENCODER_AVG[w]))) && (!CHANGE_DIR_FLAG)){
+      CHANGE_DIR_FLAG = true;
+      temp_set_point[LEFT_SIDE] = set_point[LEFT_SIDE];
+      temp_set_point[RIGHT_SIDE] = set_point[RIGHT_SIDE];
+      set_point[LEFT_SIDE] = 0.0;
+      set_point[RIGHT_SIDE] = 0.0;
     }
     k++;
     }
+    //only change direction once all encoders read 0
+    if ((CHANGE_DIR_FLAG) && (ENCODER_AVG[FRONT_LEFT]==0.0) && (ENCODER_AVG[MIDDLE_LEFT]==0.0) && (ENCODER_AVG[BACK_LEFT]==0.0) && (ENCODER_AVG[FRONT_RIGHT]==0.0) && (ENCODER_AVG[MIDDLE_RIGHT]==0.0) && (ENCODER_AVG[BACK_RIGHT]==0.0)){
+      change_direction(temp_set_point[LEFT_SIDE], temp_set_point[RIGHT_SIDE]);
+    }
 
     //calculate new duty cycles
-    //TODO: SIMPLIFY SET POINTS TO ONE FOR LEFT SIDE AND ONE FOR RIGHT SIDE
     duty_cycles[FRONT_LEFT] = calculate_duty_cycle(ENCODER_AVG[FRONT_LEFT], duty_cycles[FRONT_LEFT], set_point[LEFT_SIDE]);
     duty_cycles[MIDDLE_LEFT] = calculate_duty_cycle(ENCODER_AVG[MIDDLE_LEFT], duty_cycles[MIDDLE_LEFT], set_point[LEFT_SIDE]);
     duty_cycles[BACK_LEFT] = calculate_duty_cycle(ENCODER_AVG[BACK_LEFT], duty_cycles[BACK_LEFT], set_point[LEFT_SIDE]);
@@ -583,10 +592,34 @@ static void motor_ctrl_thread(void *arg) {
 
 //we could add a direction flag to not run through the logic every time... might be important as im not sure
 //if writing direction pins continuously while encoder is 0 would be good
-void change_direction() {
+void change_direction(float left_setpoint, float right_setpoint) {
   //stop unit
   //change direction
   //restart unit 
+  //make sure all duty cycles are zero just to be sure... but dont call me shirley
+  if ( 
+  (mcpwm_get_duty(LEFT_MOTOR_UNIT, MCPWM_TIMER_0, OPERATOR) == 0.0) &&
+  (mcpwm_get_duty(LEFT_MOTOR_UNIT, MCPWM_TIMER_1, OPERATOR) == 0.0) &&
+  (mcpwm_get_duty(LEFT_MOTOR_UNIT, MCPWM_TIMER_2, OPERATOR) == 0.0) &&
+  (mcpwm_get_duty(RIGHT_MOTOR_UNIT, MCPWM_TIMER_0, OPERATOR) == 0.0) &&
+  (mcpwm_get_duty(RIGHT_MOTOR_UNIT, MCPWM_TIMER_1, OPERATOR) == 0.0) &&
+  (mcpwm_get_duty(RIGHT_MOTOR_UNIT, MCPWM_TIMER_2, OPERATOR) == 0.0)) {
+    if ((left_setpoint > 0.0) && (right_setpoint < 0.0)){
+      set_direction_right();
+    }
+    else if ((left_setpoint < 0.0) && (right_setpoint > 0.0)){
+      set_direction_left();
+    }
+    else if ((left_setpoint < 0.0) && (right_setpoint < 0.0)){
+      set_direction_backward();
+    }
+    else if ((left_setpoint >=0.0) && (right_setpoint >= 0.0)){
+      set_direction_forward();
+    }
+    CHANGE_DIR_FLAG = false;
+    set_point[LEFT_SIDE] = left_setpoint;
+    set_point[RIGHT_SIDE] = right_setpoint;
+  }
 }
 
 static void set_duty_cycles() {
