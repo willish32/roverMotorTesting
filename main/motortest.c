@@ -64,6 +64,7 @@
 
  
 float duty_cycles[6] = {0.0,0.0,0.0,0.0,0.0,0.0};
+float new_set_point[2] = {50.0,50.0}; //received setpoint from serial
 float set_point[2] = {50.0,50.0}; //motor RPM setpoint
 float temp_set_point[2] = {0.0,0.0}; //temporary setpoint for changing direction
 bool CHANGE_DIR_FLAG = false;
@@ -576,6 +577,11 @@ static void motor_ctrl_thread(void *arg) {
     //only change direction once all encoders read 0
     if ((CHANGE_DIR_FLAG) && (ENCODER_AVG[FRONT_LEFT]==0.0) && (ENCODER_AVG[MIDDLE_LEFT]==0.0) && (ENCODER_AVG[BACK_LEFT]==0.0) && (ENCODER_AVG[FRONT_RIGHT]==0.0) && (ENCODER_AVG[MIDDLE_RIGHT]==0.0) && (ENCODER_AVG[BACK_RIGHT]==0.0)){
       change_direction(temp_set_point[LEFT_SIDE], temp_set_point[RIGHT_SIDE]);
+    }
+    //only update setpoint if there is not directon change needed
+    if (!CHANGE_DIR_FLAG) {
+      set_point[LEFT_SIDE] = new_set_point[LEFT_SIDE];
+      set_point[RIGHT_SIDE] = new_set_point[RIGHT_SIDE];
     }
 
     //calculate new duty cycles
