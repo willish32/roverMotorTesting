@@ -1,7 +1,11 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
+#include "driver/uart.h"
+#include "esp_log.h"
 #include "esp_attr.h"
 #include "soc/rtc.h"
 #include "driver/mcpwm.h"
@@ -61,13 +65,26 @@
 #define BDC_PCNT_ENCODER_LOW_LIMIT -100
 #define ENCODER_CORRECTION_FACTOR 1.2
 
+#define EX_UART_NUM UART_NUM_0
+#define PATTERN_CHR_NUM    (3)         /*!< Set the number of consecutive and identical characters received by receiver which defines a UART pattern*/
+
+#define BUF_SIZE (1024)
+#define RD_BUF_SIZE (BUF_SIZE)
+static QueueHandle_t uart0_queue;
+
+
+static const char *TAG = "uart_events";
 
  
 float duty_cycles[6] = {0.0,0.0,0.0,0.0,0.0,0.0};
 float new_set_point[2] = {50.0,50.0}; //received setpoint from serial
 float set_point[2] = {50.0,50.0}; //motor RPM setpoint
+char set_point_str[20]; //for receiving serial comms
+float ENCODER_AVG[6] = {0.0};
+char encoder_str[50]; //string for sending serial comms
 float temp_set_point[2] = {0.0,0.0}; //temporary setpoint for changing direction
 bool CHANGE_DIR_FLAG = false;
+bool DIR_CHANGED = true;
 
 
 void init_all(motor_ctrl_timer_context_t *my_timer_ctx) {
@@ -81,6 +98,37 @@ void init_all(motor_ctrl_timer_context_t *my_timer_ctx) {
   encoder_init(my_timer_ctx);
   //Initialize timer and interrupts
   test_timer_init(my_timer_ctx);
+  //Initalize serial communication
+  serial_comms_init();
+}
+
+void serial_comms_init(){
+    //gcvt(ENCODER_AVG1,4,ENCODER_AVG);
+    esp_log_level_set(TAG, ESP_LOG_INFO);
+
+    /* Configure parameters of an UART driver,
+     * communication pins and install the driver */
+    uart_config_t uart_config = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_APB,
+    };
+    //Install UART driver, and get the queue.
+    uart_driver_install(EX_UART_NUM, BUF_SIZE * 2, BUF_SIZE * 2, 20, &uart0_queue, 0);
+    uart_param_config(EX_UART_NUM, &uart_config);
+
+    //Set UART log level
+    esp_log_level_set(TAG, ESP_LOG_INFO);
+    //Set UART pins (using UART0 default pins ie no changes.)
+    uart_set_pin(EX_UART_NUM, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+
+    //Set uart pattern detect function.
+    uart_enable_pattern_det_baud_intr(EX_UART_NUM, '+', PATTERN_CHR_NUM, 9, 0, 0);
+    //Reset the pattern queue length to record at most 20 pattern positions.
+    uart_pattern_queue_reset(EX_UART_NUM, 20);
 }
 
 
@@ -491,10 +539,11 @@ static void motor_ctrl_thread(void *arg) {
   int MR_pulse_queue[pulse_queue_size] = {0};
   int BR_pulse_queue[pulse_queue_size] = {0};
   int ENCODER_SUM[6] = {0};
-  float ENCODER_AVG[6] = {0.0};
+  //float ENCODER_AVG[6] = {0.0};
   int i = 0;
   int j = 0;
   bool flag = false;
+  int change_dir_counter = 0;
   float adjusted_length = 1.0;
   while(1) {
     xQueueReceive(user_ctx->pid_feedback_queue, &actual_pulses, portMAX_DELAY);
@@ -546,12 +595,12 @@ static void motor_ctrl_thread(void *arg) {
       //printf("Front Right rpm: %f\n", (float)FR_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
       //printf("Middle Right rpm: %f\n", (float)MR_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
       //printf("Back Right rpm: %f\n", (float)BR_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
-      printf("%f,", ENCODER_AVG[FRONT_LEFT]);
-      printf("%f,", ENCODER_AVG[MIDDLE_LEFT]);
-      printf("%f,", ENCODER_AVG[BACK_LEFT]);
-      printf("%f,", ENCODER_AVG[FRONT_RIGHT]);
-      printf("%f,", ENCODER_AVG[MIDDLE_RIGHT]);
-      printf("%f\n", ENCODER_AVG[BACK_RIGHT]);
+      // printf("%f,", ENCODER_AVG[FRONT_LEFT]);
+      // printf("%f,", ENCODER_AVG[MIDDLE_LEFT]);
+      // printf("%f,", ENCODER_AVG[BACK_LEFT]);
+      // printf("%f,", ENCODER_AVG[FRONT_RIGHT]);
+      // printf("%f,", ENCODER_AVG[MIDDLE_RIGHT]);
+      // printf("%f\n", ENCODER_AVG[BACK_RIGHT]);
       i++;
     if (j < 10) {
       j++;
@@ -564,9 +613,10 @@ static void motor_ctrl_thread(void *arg) {
     //only compare the FL and FR odoms for SPEED
     for (int w = 0; w < 4; w = w + 3){
       int k = 0;  //need a different index for set points
-      //right now, the change direction fx is called when the setpoint has an opposite sign as the odom reading, and if odom is zero and the setpoint is nonzero
+      //right now, the change direction flag is set when the setpoint has an opposite sign as the odom reading, and if odom is zero and the setpoint is nonzero
       if ((((set_point[k] > 0.0) != (ENCODER_AVG[w] > 0.0) && (set_point[k] != 0.0)) || ((ENCODER_AVG[w] == 0.0) && (set_point[k] != ENCODER_AVG[w]))) && (!CHANGE_DIR_FLAG)){
       CHANGE_DIR_FLAG = true;
+      DIR_CHANGED = false;
       temp_set_point[LEFT_SIDE] = set_point[LEFT_SIDE];
       temp_set_point[RIGHT_SIDE] = set_point[RIGHT_SIDE];
       set_point[LEFT_SIDE] = 0.0;
@@ -579,10 +629,17 @@ static void motor_ctrl_thread(void *arg) {
       change_direction(temp_set_point[LEFT_SIDE], temp_set_point[RIGHT_SIDE]);
     }
     //only update setpoint if there is not directon change needed
-    if (!CHANGE_DIR_FLAG) {
+    if (!CHANGE_DIR_FLAG && DIR_CHANGED) {
       set_point[LEFT_SIDE] = new_set_point[LEFT_SIDE];
       set_point[RIGHT_SIDE] = new_set_point[RIGHT_SIDE];
     }
+
+    if(change_dir_counter >= 100) {
+      change_dir_counter = 0;
+      CHANGE_DIR_FLAG = false;
+    } 
+
+    if(CHANGE_DIR_FLAG && DIR_CHANGED) change_dir_counter++;
 
     //calculate new duty cycles
     duty_cycles[FRONT_LEFT] = calculate_duty_cycle(ENCODER_AVG[FRONT_LEFT], duty_cycles[FRONT_LEFT], set_point[LEFT_SIDE]);
@@ -592,6 +649,7 @@ static void motor_ctrl_thread(void *arg) {
     duty_cycles[MIDDLE_RIGHT] = calculate_duty_cycle(ENCODER_AVG[MIDDLE_RIGHT], duty_cycles[MIDDLE_RIGHT], set_point[RIGHT_SIDE]);
     duty_cycles[BACK_RIGHT] = calculate_duty_cycle(ENCODER_AVG[BACK_RIGHT], duty_cycles[BACK_RIGHT], set_point[RIGHT_SIDE]);
     set_duty_cycles();
+    printf("FL ENC: %f\t FL DUTY: %f\t FL SET: %f\n", ENCODER_AVG[FRONT_LEFT],duty_cycles[FRONT_LEFT],set_point[LEFT_SIDE]);
     vTaskDelay(50 / portTICK_PERIOD_MS);
   }
 }
@@ -599,6 +657,7 @@ static void motor_ctrl_thread(void *arg) {
 //we could add a direction flag to not run through the logic every time... might be important as im not sure
 //if writing direction pins continuously while encoder is 0 would be good
 void change_direction(float left_setpoint, float right_setpoint) {
+  printf("changing direction...\n");
   //stop unit
   //change direction
   //restart unit 
@@ -619,19 +678,17 @@ void change_direction(float left_setpoint, float right_setpoint) {
     else if ((left_setpoint < 0.0) && (right_setpoint < 0.0)){
       set_direction_backward();
     }
-    else if ((left_setpoint >=0.0) && (right_setpoint >= 0.0)){
+    else if ((left_setpoint >= 0.0) && (right_setpoint >= 0.0)){
       set_direction_forward();
+      printf("set direction to forward\n");
     }
-    CHANGE_DIR_FLAG = false;
+    DIR_CHANGED = true;
     set_point[LEFT_SIDE] = left_setpoint;
     set_point[RIGHT_SIDE] = right_setpoint;
   }
 }
 
 static void set_duty_cycles() {
-  //TODO: fix directional blindness 
-  //      - allow for duty cycles floats to be positive or negative, adjust in calculations by setting GPIO pins
-  //      - check direction or set direction?  
   //set left side PWMs
   mcpwm_set_duty(LEFT_MOTOR_UNIT, MCPWM_TIMER_0, OPERATOR, duty_cycles[FRONT_LEFT]);
   mcpwm_set_duty(LEFT_MOTOR_UNIT, MCPWM_TIMER_1, OPERATOR, duty_cycles[MIDDLE_LEFT]);
@@ -641,7 +698,6 @@ static void set_duty_cycles() {
   mcpwm_set_duty(RIGHT_MOTOR_UNIT, MCPWM_TIMER_0, OPERATOR, duty_cycles[FRONT_RIGHT]);
   mcpwm_set_duty(RIGHT_MOTOR_UNIT, MCPWM_TIMER_1, OPERATOR, duty_cycles[MIDDLE_RIGHT]);
   mcpwm_set_duty(RIGHT_MOTOR_UNIT, MCPWM_TIMER_2, OPERATOR, duty_cycles[BACK_RIGHT]);
-
 }
 
 static bool motor_ctrl_timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *arg)
@@ -746,6 +802,9 @@ float calculate_duty_cycle(float pulse_counts, float duty, float set_point) {  /
 
   //incremental control
   if((abs(pulse_counts) < (set_point + PAD)) && (abs(pulse_counts) > set_point - PAD)){
+    if (set_point == 0.0){
+      return 0.0;
+    }
     return duty;
   }
   if(abs(pulse_counts) > (set_point + PAD)){
@@ -760,10 +819,106 @@ float calculate_duty_cycle(float pulse_counts, float duty, float set_point) {  /
     }
     return duty + 1.0;
   }
-
+  printf("calculated duty: %f\n", duty);
   return duty;
 }
-  
+
+static void uart_event_task(void *pvParameters)
+{
+    uart_event_t event;
+    size_t buffered_size;
+    uint8_t* dtmp = (uint8_t*) malloc(RD_BUF_SIZE);
+    for(;;) {
+        //Waiting for UART event.
+        //printf("waiting for uart...\n");
+        if(xQueueReceive(uart0_queue, (void * )&event, (TickType_t)portMAX_DELAY)) {
+            //printf("something in queue\n");
+            bzero(dtmp, RD_BUF_SIZE);
+            //ESP_LOGI(TAG, "uart[%d] event:", EX_UART_NUM);
+            switch(event.type) {
+                //Event of UART receving data
+                /*We'd better handler data event fast, there would be much more data events than
+                other types of events. If we take too much time on data event, the queue might
+                be full.*/
+                case UART_DATA:
+                    //ESP_LOGI(TAG, "[UART DATA]: %d", event.size);
+                    //int test = 0;
+                    uart_read_bytes(EX_UART_NUM, dtmp, 2*sizeof(float), portMAX_DELAY);
+                    //set_point[0] = *dtmp;
+                    //set_point[1] = (uint8_t * + 5)dtmp;
+                    strcpy(set_point_str, (float *)dtmp);
+                    new_set_point[0] = ((float *)dtmp)[0];
+                    new_set_point[1] = ((float *)dtmp)[1]; 
+                    //printf("bytes read: %i\n", test);
+                    //printf("dtmp[0]: %.10f\n", i1);
+                    //printf("dtmp[1]: %f\n", i2);
+                    //printf("set point[0]: %f\n", set_point[0]);
+                    //printf("set point[1]: %f\n", set_point[1]);
+                    //printf("set point str: %s\n", set_point_str);
+                    //ESP_LOGI(TAG, "[DATA EVT]:");
+                    sprintf(encoder_str, "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", new_set_point[0],new_set_point[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
+                    uart_write_bytes(EX_UART_NUM, (const char*) encoder_str, strlen(encoder_str));
+                    break;
+                //Event of HW FIFO overflow detected
+                case UART_FIFO_OVF:
+                    //ESP_LOGI(TAG, "hw fifo overflow");
+                    // If fifo overflow happened, you should consider adding flow control for your application.
+                    // The ISR has already reset the rx FIFO,
+                    // As an example, we directly flush the rx buffer here in order to read more data.
+                    uart_flush_input(EX_UART_NUM);
+                    xQueueReset(uart0_queue);
+                    break;
+                //Event of UART ring buffer full
+                case UART_BUFFER_FULL:
+                    //ESP_LOGI(TAG, "ring buffer full");
+                    // If buffer full happened, you should consider encreasing your buffer size
+                    // As an example, we directly flush the rx buffer here in order to read more data.
+                    uart_flush_input(EX_UART_NUM);
+                    xQueueReset(uart0_queue);
+                    break;
+                //Event of UART RX break detected
+                case UART_BREAK:
+                    //ESP_LOGI(TAG, "uart rx break");
+                    break;
+                //Event of UART parity check error
+                case UART_PARITY_ERR:
+                    //ESP_LOGI(TAG, "uart parity error");
+                    break;
+                //Event of UART frame error
+                case UART_FRAME_ERR:
+                    //ESP_LOGI(TAG, "uart frame error");
+                    break;
+                //UART_PATTERN_DET
+                case UART_PATTERN_DET:
+                    uart_get_buffered_data_len(EX_UART_NUM, &buffered_size);
+                    int pos = uart_pattern_pop_pos(EX_UART_NUM);
+                    //ESP_LOGI(TAG, "[UART PATTERN DETECTED] pos: %d, buffered size: %d", pos, buffered_size);
+                    if (pos == -1) {
+                        // There used to be a UART_PATTERN_DET event, but the pattern position queue is full so that it can not
+                        // record the position. We should set a larger queue size.
+                        // As an example, we directly flush the rx buffer here.
+                        uart_flush_input(EX_UART_NUM);
+                    } else {
+                        uart_read_bytes(EX_UART_NUM, dtmp, pos, 100 / portTICK_PERIOD_MS);
+                        uint8_t pat[PATTERN_CHR_NUM + 1];
+                        memset(pat, 0, sizeof(pat));
+                        uart_read_bytes(EX_UART_NUM, pat, PATTERN_CHR_NUM, 100 / portTICK_PERIOD_MS);
+                        //ESP_LOGI(TAG, "read data: %s", dtmp);
+                        //ESP_LOGI(TAG, "read pat : %s", pat);
+                    }
+                    break;
+                //Others
+                default:
+                    //ESP_LOGI(TAG, "uart event type: %d", event.type);
+                    break;
+            }
+        }
+    }
+    free(dtmp);
+    dtmp = NULL;
+    vTaskDelete(NULL);
+    //vTaskDelay(50 / portTICK_PERIOD_MS);
+}
 /*
  - Rewrite encoder initializers, potentially accessor interrupt functions
  - Add in PID functionalilty
@@ -779,20 +934,11 @@ void app_main(void)
   static motor_ctrl_timer_context_t my_timer_ctx = {};
   my_timer_ctx.pid_queue = pid_fb_queue;
   init_all(&my_timer_ctx);
-  //for test, hard set direction to forward for both sides
-  set_direction_forward();
-  //set_direction_backward();
-  //set_direction_left();
-  //set_direction_right();
   
   static motor_ctrl_task_context_t my_task_ctx = {};
   my_task_ctx.pid_feedback_queue = pid_fb_queue;
-  // gpio_set_level(GPIO_LEFT_0_DIR, 1);
-  // gpio_set_level(GPIO_LEFT_1_DIR, 1);
-  // gpio_set_level(GPIO_LEFT_2_DIR, 1);
-  // gpio_set_level(GPIO_RIGHT_0_DIR, 0);
-  // gpio_set_level(GPIO_RIGHT_1_DIR, 0);
-  // gpio_set_level(GPIO_RIGHT_2_DIR, 0);
   xTaskCreate(motor_ctrl_thread, "motor_ctrl_thread", 4096, &my_task_ctx, 5, NULL);
   //TODO: add thread to set expected pulses 
+  //Create a task to handler UART event from ISR
+  xTaskCreate(uart_event_task, "uart_event_task", 2048, NULL, 6, NULL);
 }

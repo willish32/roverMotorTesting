@@ -76,4 +76,6 @@ void set_direction_right();
 float calculate_duty_cycle(float pulse_counts, float duty, float set_point);
 static void set_duty_cycles();
 void change_direction(float left_setpoint, float right_setpoint);
+void serial_comms_init();
+static void uart_event_task(void *pvParameters);
 
