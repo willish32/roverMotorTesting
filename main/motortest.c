@@ -71,14 +71,16 @@
 #define BUF_SIZE (1024)
 #define RD_BUF_SIZE (BUF_SIZE)
 static QueueHandle_t uart0_queue;
+static SemaphoreHandle_t mutex;
+static SemaphoreHandle_t motor_mutex;
 
 
 static const char *TAG = "uart_events";
 
  
 float duty_cycles[6] = {0.0,0.0,0.0,0.0,0.0,0.0};
-float new_set_point[2] = {50.0,50.0}; //received setpoint from serial
-float set_point[2] = {50.0,50.0}; //motor RPM setpoint
+float new_set_point[2] = {0.0,0.0}; //received setpoint from serial
+float set_point[2] = {0.0,0.0}; //motor RPM setpoint
 char set_point_str[20]; //for receiving serial comms
 float ENCODER_AVG[6] = {0.0};
 char encoder_str[50]; //string for sending serial comms
@@ -104,8 +106,9 @@ void init_all(motor_ctrl_timer_context_t *my_timer_ctx) {
 
 void serial_comms_init(){
     //gcvt(ENCODER_AVG1,4,ENCODER_AVG);
-    esp_log_level_set(TAG, ESP_LOG_INFO);
-
+    //esp_log_level_set(TAG, ESP_LOG_INFO);
+    mutex = xSemaphoreCreateMutex();
+    motor_mutex = xSemaphoreCreateMutex();
     /* Configure parameters of an UART driver,
      * communication pins and install the driver */
     uart_config_t uart_config = {
@@ -121,14 +124,14 @@ void serial_comms_init(){
     uart_param_config(EX_UART_NUM, &uart_config);
 
     //Set UART log level
-    esp_log_level_set(TAG, ESP_LOG_INFO);
+    //esp_log_level_set(TAG, ESP_LOG_INFO);
     //Set UART pins (using UART0 default pins ie no changes.)
     uart_set_pin(EX_UART_NUM, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 
     //Set uart pattern detect function.
-    uart_enable_pattern_det_baud_intr(EX_UART_NUM, '+', PATTERN_CHR_NUM, 9, 0, 0);
+    //uart_enable_pattern_det_baud_intr(EX_UART_NUM, '+', PATTERN_CHR_NUM, 9, 0, 0);
     //Reset the pattern queue length to record at most 20 pattern positions.
-    uart_pattern_queue_reset(EX_UART_NUM, 20);
+    //uart_pattern_queue_reset(EX_UART_NUM, 20);
 }
 
 
@@ -528,6 +531,32 @@ void pwm_initialize() {
   mcpwm_init(RIGHT_MOTOR_UNIT, MCPWM_TIMER_2, &pwm_config);
 }
 
+static void change_direction_master() {
+  //stop motors
+  float temp_set_point_L = set_points[0];
+  float temp_set_point_R = set_points[1];
+  set_points[0] = 0.0;
+  set_points[1] = 0.0;
+  //take mutex
+  xSemaphoreTake(motor_mutex, portMAX_DELAY);
+    while((ENCODER_AVG[FRONT_LEFT])
+
+    duty_cycles[FRONT_LEFT] = calculate_duty_cycle(ENCODER_AVG[FRONT_LEFT], duty_cycles[FRONT_LEFT], set_point[LEFT_SIDE]);
+    duty_cycles[MIDDLE_LEFT] = calculate_duty_cycle(ENCODER_AVG[MIDDLE_LEFT], duty_cycles[MIDDLE_LEFT], set_point[LEFT_SIDE]);
+    duty_cycles[BACK_LEFT] = calculate_duty_cycle(ENCODER_AVG[BACK_LEFT], duty_cycles[BACK_LEFT], set_point[LEFT_SIDE]);
+    duty_cycles[FRONT_RIGHT] = calculate_duty_cycle(ENCODER_AVG[FRONT_RIGHT], duty_cycles[FRONT_RIGHT], set_point[RIGHT_SIDE]);
+    duty_cycles[MIDDLE_RIGHT] = calculate_duty_cycle(ENCODER_AVG[MIDDLE_RIGHT], duty_cycles[MIDDLE_RIGHT], set_point[RIGHT_SIDE]);
+    duty_cycles[BACK_RIGHT] = calculate_duty_cycle(ENCODER_AVG[BACK_RIGHT], duty_cycles[BACK_RIGHT], set_point[RIGHT_SIDE]);
+    set_duty_cycles();
+  
+  //change setpoints
+  //?? Do we do anything else???
+
+  //give back mutex
+  xSemaphoreGive(motor_mutex);
+}
+
+
 static void motor_ctrl_thread(void *arg) {
   motor_ctrl_task_context_t *user_ctx = (motor_ctrl_task_context_t *) arg;
   pulse_count_t actual_pulses = {};
@@ -630,11 +659,13 @@ static void motor_ctrl_thread(void *arg) {
     }
     //only update setpoint if there is not directon change needed
     if (!CHANGE_DIR_FLAG && DIR_CHANGED) {
+      xSemaphoreTake(mutex, portMAX_DELAY);
       set_point[LEFT_SIDE] = new_set_point[LEFT_SIDE];
       set_point[RIGHT_SIDE] = new_set_point[RIGHT_SIDE];
+      xSemaphoreGive(mutex);
     }
 
-    if(change_dir_counter >= 100) {
+    if(DIR_CHANGED && change_dir_counter >= 100) {
       change_dir_counter = 0;
       CHANGE_DIR_FLAG = false;
     } 
@@ -828,11 +859,10 @@ static void uart_event_task(void *pvParameters)
     uart_event_t event;
     size_t buffered_size;
     uint8_t* dtmp = (uint8_t*) malloc(RD_BUF_SIZE);
+    //float i1; float i2;
     for(;;) {
         //Waiting for UART event.
-        //printf("waiting for uart...\n");
         if(xQueueReceive(uart0_queue, (void * )&event, (TickType_t)portMAX_DELAY)) {
-            //printf("something in queue\n");
             bzero(dtmp, RD_BUF_SIZE);
             //ESP_LOGI(TAG, "uart[%d] event:", EX_UART_NUM);
             switch(event.type) {
@@ -842,22 +872,18 @@ static void uart_event_task(void *pvParameters)
                 be full.*/
                 case UART_DATA:
                     //ESP_LOGI(TAG, "[UART DATA]: %d", event.size);
-                    //int test = 0;
-                    uart_read_bytes(EX_UART_NUM, dtmp, 2*sizeof(float), portMAX_DELAY);
-                    //set_point[0] = *dtmp;
-                    //set_point[1] = (uint8_t * + 5)dtmp;
-                    strcpy(set_point_str, (float *)dtmp);
-                    new_set_point[0] = ((float *)dtmp)[0];
-                    new_set_point[1] = ((float *)dtmp)[1]; 
-                    //printf("bytes read: %i\n", test);
-                    //printf("dtmp[0]: %.10f\n", i1);
-                    //printf("dtmp[1]: %f\n", i2);
-                    //printf("set point[0]: %f\n", set_point[0]);
-                    //printf("set point[1]: %f\n", set_point[1]);
-                    //printf("set point str: %s\n", set_point_str);
+                    uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
                     //ESP_LOGI(TAG, "[DATA EVT]:");
-                    sprintf(encoder_str, "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", new_set_point[0],new_set_point[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
-                    uart_write_bytes(EX_UART_NUM, (const char*) encoder_str, strlen(encoder_str));
+                    //sscanf((const char *) dtmp, "%f%f", &i1, &i2);
+                    //printf("%f%f\n", i1, i2);
+                    xSemaphoreTake(mutex, portMAX_DELAY);
+                    char* pdtemp;
+                    new_set_point[0] = strtof((const char *)dtmp, &pdtemp);
+                    new_set_point[1] = strtof(pdtemp, NULL);
+                    //printf("%f,%f\n", new_set_point[0],new_set_point[1]); //fuck uart
+                    xSemaphoreGive(mutex);
+                    //uart_write_bytes(EX_UART_NUM, (const char*) dtmp, event.size);
+                    
                     break;
                 //Event of HW FIFO overflow detected
                 case UART_FIFO_OVF:
@@ -917,8 +943,8 @@ static void uart_event_task(void *pvParameters)
     free(dtmp);
     dtmp = NULL;
     vTaskDelete(NULL);
-    //vTaskDelay(50 / portTICK_PERIOD_MS);
 }
+
 /*
  - Rewrite encoder initializers, potentially accessor interrupt functions
  - Add in PID functionalilty
@@ -940,5 +966,5 @@ void app_main(void)
   xTaskCreate(motor_ctrl_thread, "motor_ctrl_thread", 4096, &my_task_ctx, 5, NULL);
   //TODO: add thread to set expected pulses 
   //Create a task to handler UART event from ISR
-  xTaskCreate(uart_event_task, "uart_event_task", 2048, NULL, 6, NULL);
+  xTaskCreate(uart_event_task, "uart_event_task", 2048, NULL, 4, NULL);
 }
