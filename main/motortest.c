@@ -87,6 +87,8 @@ char encoder_str[50]; //string for sending serial comms
 float temp_set_point[2] = {0.0,0.0}; //temporary setpoint for changing direction
 bool CHANGE_DIR_FLAG = false;
 bool DIR_CHANGED = true;
+bool left_direction = true; //forward == true
+bool right_direction = true;
 
 
 void init_all(motor_ctrl_timer_context_t *my_timer_ctx) {
@@ -531,27 +533,45 @@ void pwm_initialize() {
   mcpwm_init(RIGHT_MOTOR_UNIT, MCPWM_TIMER_2, &pwm_config);
 }
 
-static void change_direction_master() {
-  //stop motors
-  float temp_set_point_L = set_points[0];
-  float temp_set_point_R = set_points[1];
-  set_points[0] = 0.0;
-  set_points[1] = 0.0;
-  //take mutex
+static void change_direction_master(float left_setpoint, float right_setpoint) {
+  //Take mutex
   xSemaphoreTake(motor_mutex, portMAX_DELAY);
-    while((ENCODER_AVG[FRONT_LEFT])
-
-    duty_cycles[FRONT_LEFT] = calculate_duty_cycle(ENCODER_AVG[FRONT_LEFT], duty_cycles[FRONT_LEFT], set_point[LEFT_SIDE]);
-    duty_cycles[MIDDLE_LEFT] = calculate_duty_cycle(ENCODER_AVG[MIDDLE_LEFT], duty_cycles[MIDDLE_LEFT], set_point[LEFT_SIDE]);
-    duty_cycles[BACK_LEFT] = calculate_duty_cycle(ENCODER_AVG[BACK_LEFT], duty_cycles[BACK_LEFT], set_point[LEFT_SIDE]);
-    duty_cycles[FRONT_RIGHT] = calculate_duty_cycle(ENCODER_AVG[FRONT_RIGHT], duty_cycles[FRONT_RIGHT], set_point[RIGHT_SIDE]);
-    duty_cycles[MIDDLE_RIGHT] = calculate_duty_cycle(ENCODER_AVG[MIDDLE_RIGHT], duty_cycles[MIDDLE_RIGHT], set_point[RIGHT_SIDE]);
-    duty_cycles[BACK_RIGHT] = calculate_duty_cycle(ENCODER_AVG[BACK_RIGHT], duty_cycles[BACK_RIGHT], set_point[RIGHT_SIDE]);
-    set_duty_cycles();
   
-  //change setpoints
-  //?? Do we do anything else???
-
+  //Stop motors
+  while((duty_cycles[FRONT_LEFT] > 0.0) || (duty_cycles[MIDDLE_LEFT] > 0.0) || (duty_cycles[BACK_LEFT] > 0.0) || (duty_cycles[FRONT_RIGHT] > 0.0) || (duty_cycles[MIDDLE_RIGHT] > 0.0) || (duty_cycles[BACK_RIGHT] > 0.0))
+    {
+    duty_cycles[FRONT_LEFT] = (duty_cycles[FRONT_LEFT] >= 1.0 ) ? duty_cycles[FRONT_LEFT] - 1.0 : 0.0;
+    duty_cycles[MIDDLE_LEFT] = (duty_cycles[MIDDLE_LEFT] >= 1.0 ) ? duty_cycles[MIDDLE_LEFT] - 1.0 : 0.0;
+    duty_cycles[BACK_LEFT] = (duty_cycles[BACK_LEFT] >= 1.0 ) ? duty_cycles[BACK_LEFT] - 1.0 : 0.0;
+    duty_cycles[FRONT_RIGHT] = (duty_cycles[FRONT_RIGHT] >= 1.0 ) ? duty_cycles[FRONT_RIGHT] - 1.0 : 0.0;
+    duty_cycles[MIDDLE_RIGHT] = (duty_cycles[MIDDLE_RIGHT] >= 1.0 ) ? duty_cycles[MIDDLE_RIGHT] - 1.0 : 0.0;
+    duty_cycles[BACK_RIGHT] = (duty_cycles[BACK_RIGHT] >= 1.0 ) ? duty_cycles[BACK_RIGHT] - 1.0 : 0.0;
+    set_duty_cycles();
+    vTaskDelay(50 / portTICK_PERIOD_MS);
+    }
+  //change direction
+  if ( 
+  (mcpwm_get_duty(LEFT_MOTOR_UNIT, MCPWM_TIMER_0, OPERATOR) == 0.0) &&
+  (mcpwm_get_duty(LEFT_MOTOR_UNIT, MCPWM_TIMER_1, OPERATOR) == 0.0) &&
+  (mcpwm_get_duty(LEFT_MOTOR_UNIT, MCPWM_TIMER_2, OPERATOR) == 0.0) &&
+  (mcpwm_get_duty(RIGHT_MOTOR_UNIT, MCPWM_TIMER_0, OPERATOR) == 0.0) &&
+  (mcpwm_get_duty(RIGHT_MOTOR_UNIT, MCPWM_TIMER_1, OPERATOR) == 0.0) &&
+  (mcpwm_get_duty(RIGHT_MOTOR_UNIT, MCPWM_TIMER_2, OPERATOR) == 0.0)) {
+    if ((left_setpoint > 0.0) && (right_setpoint < 0.0)){
+      set_direction_right();
+    }
+    else if ((left_setpoint < 0.0) && (right_setpoint > 0.0)){
+      set_direction_left();
+    }
+    else if ((left_setpoint < 0.0) && (right_setpoint < 0.0)){
+      set_direction_backward();
+      //printf("set direction backward\n");
+    }
+    else if ((left_setpoint >= 0.0) && (right_setpoint >= 0.0)){
+      set_direction_forward();
+      //printf("set direction to forward\n");
+    }
+  }
   //give back mutex
   xSemaphoreGive(motor_mutex);
 }
@@ -611,13 +631,14 @@ static void motor_ctrl_thread(void *arg) {
       }
 
       //calculate new average
+      xSemaphoreTake(mutex, portMAX_DELAY);
       ENCODER_AVG[FRONT_LEFT] = (float)ENCODER_SUM[FRONT_LEFT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[MIDDLE_LEFT] = (float)ENCODER_SUM[MIDDLE_LEFT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[BACK_LEFT] = (float)ENCODER_SUM[BACK_LEFT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[FRONT_RIGHT] = (float)ENCODER_SUM[FRONT_RIGHT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[MIDDLE_RIGHT] = (float)ENCODER_SUM[MIDDLE_RIGHT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[BACK_RIGHT] = (float)ENCODER_SUM[BACK_RIGHT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
-
+      xSemaphoreGive(mutex);
       //printf("Front Left rpm: %f\n", (float)FL_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
       //printf("Middle Left rpm: %f\n", (float)ML_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
       //printf("Back Left rpm: %f\n", (float)BL_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
@@ -640,38 +661,23 @@ static void motor_ctrl_thread(void *arg) {
     //this may break, if it does we need to store previous setpoints... but i think it will be fine
     //if necessary we can offload some of this logic to the change_direction fx
     //only compare the FL and FR odoms for SPEED
-    for (int w = 0; w < 4; w = w + 3){
-      int k = 0;  //need a different index for set points
-      //right now, the change direction flag is set when the setpoint has an opposite sign as the odom reading, and if odom is zero and the setpoint is nonzero
-      if ((((set_point[k] > 0.0) != (ENCODER_AVG[w] > 0.0) && (set_point[k] != 0.0)) || ((ENCODER_AVG[w] == 0.0) && (set_point[k] != ENCODER_AVG[w]))) && (!CHANGE_DIR_FLAG)){
-      CHANGE_DIR_FLAG = true;
-      DIR_CHANGED = false;
-      temp_set_point[LEFT_SIDE] = set_point[LEFT_SIDE];
-      temp_set_point[RIGHT_SIDE] = set_point[RIGHT_SIDE];
-      set_point[LEFT_SIDE] = 0.0;
-      set_point[RIGHT_SIDE] = 0.0;
-    }
-    k++;
-    }
-    //only change direction once all encoders read 0
-    if ((CHANGE_DIR_FLAG) && (ENCODER_AVG[FRONT_LEFT]==0.0) && (ENCODER_AVG[MIDDLE_LEFT]==0.0) && (ENCODER_AVG[BACK_LEFT]==0.0) && (ENCODER_AVG[FRONT_RIGHT]==0.0) && (ENCODER_AVG[MIDDLE_RIGHT]==0.0) && (ENCODER_AVG[BACK_RIGHT]==0.0)){
-      change_direction(temp_set_point[LEFT_SIDE], temp_set_point[RIGHT_SIDE]);
-    }
-    //only update setpoint if there is not directon change needed
-    if (!CHANGE_DIR_FLAG && DIR_CHANGED) {
-      xSemaphoreTake(mutex, portMAX_DELAY);
-      set_point[LEFT_SIDE] = new_set_point[LEFT_SIDE];
-      set_point[RIGHT_SIDE] = new_set_point[RIGHT_SIDE];
-      xSemaphoreGive(mutex);
-    }
 
-    if(DIR_CHANGED && change_dir_counter >= 100) {
-      change_dir_counter = 0;
-      CHANGE_DIR_FLAG = false;
-    } 
+    //Take input read mutex
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    //check for direction change need
+    bool left_set_direction = new_set_point[0] >= 0; //true = forward
+    bool right_set_direction = new_set_point[1] >= 0;
+    if((left_set_direction != left_direction) || (right_set_direction != right_direction)) {
+      //call function
+      change_direction_master(new_set_point[0], new_set_point[1]);
+    }
+    
+    //put new set points into set point vars for actual motor ctrl
+    set_point[LEFT_SIDE] = new_set_point[LEFT_SIDE];
+    set_point[RIGHT_SIDE] = new_set_point[RIGHT_SIDE];
+    xSemaphoreGive(mutex);
 
-    if(CHANGE_DIR_FLAG && DIR_CHANGED) change_dir_counter++;
-
+    xSemaphoreTake(motor_mutex, portMAX_DELAY);
     //calculate new duty cycles
     duty_cycles[FRONT_LEFT] = calculate_duty_cycle(ENCODER_AVG[FRONT_LEFT], duty_cycles[FRONT_LEFT], set_point[LEFT_SIDE]);
     duty_cycles[MIDDLE_LEFT] = calculate_duty_cycle(ENCODER_AVG[MIDDLE_LEFT], duty_cycles[MIDDLE_LEFT], set_point[LEFT_SIDE]);
@@ -680,7 +686,10 @@ static void motor_ctrl_thread(void *arg) {
     duty_cycles[MIDDLE_RIGHT] = calculate_duty_cycle(ENCODER_AVG[MIDDLE_RIGHT], duty_cycles[MIDDLE_RIGHT], set_point[RIGHT_SIDE]);
     duty_cycles[BACK_RIGHT] = calculate_duty_cycle(ENCODER_AVG[BACK_RIGHT], duty_cycles[BACK_RIGHT], set_point[RIGHT_SIDE]);
     set_duty_cycles();
-    printf("FL ENC: %f\t FL DUTY: %f\t FL SET: %f\n", ENCODER_AVG[FRONT_LEFT],duty_cycles[FRONT_LEFT],set_point[LEFT_SIDE]);
+    xSemaphoreGive(motor_mutex);
+
+
+    //printf("FL ENC: %f\t FL DUTY: %f\t FL SET: %f\n", ENCODER_AVG[FRONT_LEFT],duty_cycles[FRONT_LEFT],set_point[LEFT_SIDE]);
     vTaskDelay(50 / portTICK_PERIOD_MS);
   }
 }
@@ -688,7 +697,7 @@ static void motor_ctrl_thread(void *arg) {
 //we could add a direction flag to not run through the logic every time... might be important as im not sure
 //if writing direction pins continuously while encoder is 0 would be good
 void change_direction(float left_setpoint, float right_setpoint) {
-  printf("changing direction...\n");
+  //printf("changing direction...\n");
   //stop unit
   //change direction
   //restart unit 
@@ -711,7 +720,7 @@ void change_direction(float left_setpoint, float right_setpoint) {
     }
     else if ((left_setpoint >= 0.0) && (right_setpoint >= 0.0)){
       set_direction_forward();
-      printf("set direction to forward\n");
+      //printf("set direction to forward\n");
     }
     DIR_CHANGED = true;
     set_point[LEFT_SIDE] = left_setpoint;
@@ -791,6 +800,8 @@ static bool motor_ctrl_timer_cb(gptimer_handle_t timer, const gptimer_alarm_even
 
 void set_direction_forward() {
   //fix -- change to #defined flags
+  left_direction = true;
+  right_direction = true;
   gpio_set_level(GPIO_LEFT_0_DIR, 1);
   gpio_set_level(GPIO_LEFT_1_DIR, 1);
   gpio_set_level(GPIO_LEFT_2_DIR, 1);
@@ -800,6 +811,8 @@ void set_direction_forward() {
 }
 
 void set_direction_backward() {
+  left_direction = false;
+  right_direction = false;
   gpio_set_level(GPIO_LEFT_0_DIR, 0);
   gpio_set_level(GPIO_LEFT_1_DIR, 0);
   gpio_set_level(GPIO_LEFT_2_DIR, 0);
@@ -809,6 +822,8 @@ void set_direction_backward() {
 }
 
 void set_direction_left() {
+  left_direction = false;
+  right_direction = true;
   gpio_set_level(GPIO_LEFT_0_DIR, 0);
   gpio_set_level(GPIO_LEFT_1_DIR, 0);
   gpio_set_level(GPIO_LEFT_2_DIR, 0);
@@ -818,6 +833,8 @@ void set_direction_left() {
 }
 
 void set_direction_right() {
+  left_direction = true;
+  right_direction = false;
   gpio_set_level(GPIO_LEFT_0_DIR, 1);
   gpio_set_level(GPIO_LEFT_1_DIR, 1);
   gpio_set_level(GPIO_LEFT_2_DIR, 1);
@@ -832,25 +849,25 @@ float calculate_duty_cycle(float pulse_counts, float duty, float set_point) {  /
   #define MAX_RPM 60.0  //maximum allowable RPM
 
   //incremental control
-  if((abs(pulse_counts) < (set_point + PAD)) && (abs(pulse_counts) > set_point - PAD)){
+  if((abs(pulse_counts) < (abs(set_point) + PAD)) && (abs(pulse_counts) > abs(set_point) - PAD)){
     if (set_point == 0.0){
       return 0.0;
     }
     return duty;
   }
-  if(abs(pulse_counts) > (set_point + PAD)){
+  if(abs(pulse_counts) > (abs(set_point) + PAD)){
     if ((duty - 1.0) <= 0.0){
       return 0.0;
     }
     return duty - 1.0;
   }
-  if (abs(pulse_counts) < (set_point - PAD)){
+  if (abs(pulse_counts) < (abs(set_point) - PAD)){
     if ((duty + 1.0) >= MAX_RPM){
       return duty;
     }
     return duty + 1.0;
   }
-  printf("calculated duty: %f\n", duty);
+  //printf("calculated duty: %f\n", duty);
   return duty;
 }
 
@@ -880,7 +897,7 @@ static void uart_event_task(void *pvParameters)
                     char* pdtemp;
                     new_set_point[0] = strtof((const char *)dtmp, &pdtemp);
                     new_set_point[1] = strtof(pdtemp, NULL);
-                    //printf("%f,%f\n", new_set_point[0],new_set_point[1]); //fuck uart
+                    printf("%f,%f,%f,%f,%f,%f\n", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]); //fuck uart
                     xSemaphoreGive(mutex);
                     //uart_write_bytes(EX_UART_NUM, (const char*) dtmp, event.size);
                     
@@ -963,6 +980,7 @@ void app_main(void)
   
   static motor_ctrl_task_context_t my_task_ctx = {};
   my_task_ctx.pid_feedback_queue = pid_fb_queue;
+  set_direction_forward();
   xTaskCreate(motor_ctrl_thread, "motor_ctrl_thread", 4096, &my_task_ctx, 5, NULL);
   //TODO: add thread to set expected pulses 
   //Create a task to handler UART event from ISR
