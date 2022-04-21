@@ -83,7 +83,8 @@ float new_set_point[2] = {0.0,0.0}; //received setpoint from serial
 float set_point[2] = {0.0,0.0}; //motor RPM setpoint
 char set_point_str[20]; //for receiving serial comms
 float ENCODER_AVG[6] = {0.0};
-char encoder_str[50]; //string for sending serial comms
+char encoder_str[64]; //string for sending serial comms
+char encoder_str_send[100]; //string for sending with length
 float temp_set_point[2] = {0.0,0.0}; //temporary setpoint for changing direction
 bool CHANGE_DIR_FLAG = false;
 bool DIR_CHANGED = true;
@@ -594,6 +595,7 @@ static void motor_ctrl_thread(void *arg) {
   bool flag = false;
   int change_dir_counter = 0;
   float adjusted_length = 1.0;
+  int encoder_string_length = 0;
   while(1) {
     xQueueReceive(user_ctx->pid_feedback_queue, &actual_pulses, portMAX_DELAY);
     if(i >= pulse_queue_size) {
@@ -632,12 +634,26 @@ static void motor_ctrl_thread(void *arg) {
 
       //calculate new average
       xSemaphoreTake(mutex, portMAX_DELAY);
+      //portDISABLE_INTERRUPTS();
       ENCODER_AVG[FRONT_LEFT] = (float)ENCODER_SUM[FRONT_LEFT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[MIDDLE_LEFT] = (float)ENCODER_SUM[MIDDLE_LEFT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[BACK_LEFT] = (float)ENCODER_SUM[BACK_LEFT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[FRONT_RIGHT] = (float)ENCODER_SUM[FRONT_RIGHT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[MIDDLE_RIGHT] = (float)ENCODER_SUM[MIDDLE_RIGHT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[BACK_RIGHT] = (float)ENCODER_SUM[BACK_RIGHT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
+      //xSemaphoreGive(mutex);
+      //xSemaphoreTake(mutex, portMAX_DELAY);
+      //portDISABLE_INTERRUPTS();
+      //printf("%f,%f,%f,%f,%f,%f\n", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
+      //printf("%f,%f,%f,%f,%f,%f\n", 40.0,40.0,40.0,40.0,40.0,40.0);
+      portDISABLE_INTERRUPTS();
+      encoder_str[63] = '\n';
+      sprintf(encoder_str, "%f,%f,%f,%f,%f,%f", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
+      //encoder_string_length = strlen(encoder_str) + ((strlen(encoder_str) >= 10) ? 3 : 2);
+      //sprintf(encoder_str_send, "%i|%s", encoder_string_length,encoder_str);
+      //sprintf(encoder_str, "%f,%f,%f,%f,%f,%f", 42.0,-42.0,42.0,30.0,-69.0,69.0);
+      uart_write_bytes(EX_UART_NUM, (const char*) encoder_str, 64);
+      portENABLE_INTERRUPTS();
       xSemaphoreGive(mutex);
       //printf("Front Left rpm: %f\n", (float)FL_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
       //printf("Middle Left rpm: %f\n", (float)ML_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
@@ -657,10 +673,11 @@ static void motor_ctrl_thread(void *arg) {
       continue;
     }
     j = 0;
-    //compare duty cycles to set point to check for direction change here
-    //this may break, if it does we need to store previous setpoints... but i think it will be fine
-    //if necessary we can offload some of this logic to the change_direction fx
-    //only compare the FL and FR odoms for SPEED
+  
+    //printf("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", 40.0,40.0,40.0,40.0,40.0,40.0); //gives empty strings
+    //printf("%f,%f,%f,%f,%f,%f\n", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
+    //sprintf(encoder_str, "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
+    //uart_write_bytes(EX_UART_NUM, (const char*) encoder_str, strlen(encoder_str));
 
     //Take input read mutex
     xSemaphoreTake(mutex, portMAX_DELAY);
@@ -691,40 +708,6 @@ static void motor_ctrl_thread(void *arg) {
 
     //printf("FL ENC: %f\t FL DUTY: %f\t FL SET: %f\n", ENCODER_AVG[FRONT_LEFT],duty_cycles[FRONT_LEFT],set_point[LEFT_SIDE]);
     vTaskDelay(50 / portTICK_PERIOD_MS);
-  }
-}
-
-//we could add a direction flag to not run through the logic every time... might be important as im not sure
-//if writing direction pins continuously while encoder is 0 would be good
-void change_direction(float left_setpoint, float right_setpoint) {
-  //printf("changing direction...\n");
-  //stop unit
-  //change direction
-  //restart unit 
-  //make sure all duty cycles are zero just to be sure... but dont call me shirley
-  if ( 
-  (mcpwm_get_duty(LEFT_MOTOR_UNIT, MCPWM_TIMER_0, OPERATOR) == 0.0) &&
-  (mcpwm_get_duty(LEFT_MOTOR_UNIT, MCPWM_TIMER_1, OPERATOR) == 0.0) &&
-  (mcpwm_get_duty(LEFT_MOTOR_UNIT, MCPWM_TIMER_2, OPERATOR) == 0.0) &&
-  (mcpwm_get_duty(RIGHT_MOTOR_UNIT, MCPWM_TIMER_0, OPERATOR) == 0.0) &&
-  (mcpwm_get_duty(RIGHT_MOTOR_UNIT, MCPWM_TIMER_1, OPERATOR) == 0.0) &&
-  (mcpwm_get_duty(RIGHT_MOTOR_UNIT, MCPWM_TIMER_2, OPERATOR) == 0.0)) {
-    if ((left_setpoint > 0.0) && (right_setpoint < 0.0)){
-      set_direction_right();
-    }
-    else if ((left_setpoint < 0.0) && (right_setpoint > 0.0)){
-      set_direction_left();
-    }
-    else if ((left_setpoint < 0.0) && (right_setpoint < 0.0)){
-      set_direction_backward();
-    }
-    else if ((left_setpoint >= 0.0) && (right_setpoint >= 0.0)){
-      set_direction_forward();
-      //printf("set direction to forward\n");
-    }
-    DIR_CHANGED = true;
-    set_point[LEFT_SIDE] = left_setpoint;
-    set_point[RIGHT_SIDE] = right_setpoint;
   }
 }
 
@@ -897,7 +880,8 @@ static void uart_event_task(void *pvParameters)
                     char* pdtemp;
                     new_set_point[0] = strtof((const char *)dtmp, &pdtemp);
                     new_set_point[1] = strtof(pdtemp, NULL);
-                    printf("%f,%f,%f,%f,%f,%f\n", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]); //fuck uart
+                    //printf("%f,%f,%f,%f,%f,%f\n", 40.0,40.0,40.0,40.0,40.0,40.0);
+                    //printf("%f,%f,%f,%f,%f,%f\n", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
                     xSemaphoreGive(mutex);
                     //uart_write_bytes(EX_UART_NUM, (const char*) dtmp, event.size);
                     
