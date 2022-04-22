@@ -9,7 +9,6 @@
 #include "esp_attr.h"
 #include "soc/rtc.h"
 #include "driver/mcpwm.h"
-//#include "soc/mcpwm_periph.h"
 #include "soc/mcpwm_reg.h"
 #include "soc/mcpwm_struct.h"
 #include "assignments.h"
@@ -74,22 +73,16 @@ static QueueHandle_t uart0_queue;
 static SemaphoreHandle_t mutex;
 static SemaphoreHandle_t motor_mutex;
 
-
 static const char *TAG = "uart_events";
 
- 
-float duty_cycles[6] = {0.0,0.0,0.0,0.0,0.0,0.0};
+float duty_cycles[6] = {0.0,0.0,0.0,0.0,0.0,0.0}; //duty cycles for each motor
 float new_set_point[2] = {0.0,0.0}; //received setpoint from serial
 float set_point[2] = {0.0,0.0}; //motor RPM setpoint
 char set_point_str[20]; //for receiving serial comms
 float ENCODER_AVG[6] = {0.0};
-char encoder_str[64]; //string for sending serial comms
-char encoder_str_send[100]; //string for sending with length
-float temp_set_point[2] = {0.0,0.0}; //temporary setpoint for changing direction
-bool CHANGE_DIR_FLAG = false;
-bool DIR_CHANGED = true;
+char encoder_str[100]; //string for sending serial comms
 bool left_direction = true; //forward == true
-bool right_direction = true;
+bool right_direction = true; 
 
 
 void init_all(motor_ctrl_timer_context_t *my_timer_ctx) {
@@ -108,11 +101,10 @@ void init_all(motor_ctrl_timer_context_t *my_timer_ctx) {
 }
 
 void serial_comms_init(){
-    //gcvt(ENCODER_AVG1,4,ENCODER_AVG);
-    //esp_log_level_set(TAG, ESP_LOG_INFO);
+    //create mutex for comms thread saftey
     mutex = xSemaphoreCreateMutex();
     motor_mutex = xSemaphoreCreateMutex();
-    /* Configure parameters of an UART driver,
+    /* Configure parameters of UART driver,
      * communication pins and install the driver */
     uart_config_t uart_config = {
         .baud_rate = 115200,
@@ -126,15 +118,8 @@ void serial_comms_init(){
     uart_driver_install(EX_UART_NUM, BUF_SIZE * 2, BUF_SIZE * 2, 20, &uart0_queue, 0);
     uart_param_config(EX_UART_NUM, &uart_config);
 
-    //Set UART log level
-    //esp_log_level_set(TAG, ESP_LOG_INFO);
     //Set UART pins (using UART0 default pins ie no changes.)
     uart_set_pin(EX_UART_NUM, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-
-    //Set uart pattern detect function.
-    //uart_enable_pattern_det_baud_intr(EX_UART_NUM, '+', PATTERN_CHR_NUM, 9, 0, 0);
-    //Reset the pattern queue length to record at most 20 pattern positions.
-    //uart_pattern_queue_reset(EX_UART_NUM, 20);
 }
 
 
@@ -166,7 +151,7 @@ static void test_timer_init(motor_ctrl_timer_context_t *my_timer_ctx) {
   ESP_ERROR_CHECK(gptimer_start(gptimer));
 }
 
-//encoder stuff
+//encoder initializations
 static bool FL_pcnt_on_reach(pcnt_unit_handle_t unit, pcnt_watch_event_data_t *edata, void *user_ctx)
 {
   //cast user context into motor control context
@@ -239,26 +224,18 @@ void gpio_initialize() {
   gpio_set_direction(GPIO_RIGHT_0_DIR, GPIO_MODE_OUTPUT);
   gpio_set_direction(GPIO_RIGHT_1_DIR, GPIO_MODE_OUTPUT);
   gpio_set_direction(GPIO_RIGHT_2_DIR, GPIO_MODE_OUTPUT);
-
-  //adjust for direction (?)
 }
 
 void pwm_pin_initialize() {
   //Left motor IO pins
   mcpwm_gpio_init(LEFT_MOTOR_UNIT, MCPWM0A, GPIO_LEFT_PWM0A_OUT);
-  
   mcpwm_gpio_init(LEFT_MOTOR_UNIT, MCPWM1A, GPIO_LEFT_PWM1A_OUT);
-  
   mcpwm_gpio_init(LEFT_MOTOR_UNIT, MCPWM2A, GPIO_LEFT_PWM2A_OUT);
-  
   
   //Right motor IO pins
   mcpwm_gpio_init(RIGHT_MOTOR_UNIT, MCPWM0A, GPIO_RIGHT_PWM0A_OUT);
-  
   mcpwm_gpio_init(RIGHT_MOTOR_UNIT, MCPWM1A, GPIO_RIGHT_PWM1A_OUT);
-  
   mcpwm_gpio_init(RIGHT_MOTOR_UNIT, MCPWM2A, GPIO_RIGHT_PWM2A_OUT);
-  
 }
 
 
@@ -534,7 +511,7 @@ void pwm_initialize() {
   mcpwm_init(RIGHT_MOTOR_UNIT, MCPWM_TIMER_2, &pwm_config);
 }
 
-static void change_direction_master(float left_setpoint, float right_setpoint) {
+static void change_direction_master(float left_setpoint, float right_setpoint, motor_ctrl_task_context_t* user_ctx) {
   //Take mutex
   xSemaphoreTake(motor_mutex, portMAX_DELAY);
   
@@ -548,6 +525,8 @@ static void change_direction_master(float left_setpoint, float right_setpoint) {
     duty_cycles[MIDDLE_RIGHT] = (duty_cycles[MIDDLE_RIGHT] >= 1.0 ) ? duty_cycles[MIDDLE_RIGHT] - 1.0 : 0.0;
     duty_cycles[BACK_RIGHT] = (duty_cycles[BACK_RIGHT] >= 1.0 ) ? duty_cycles[BACK_RIGHT] - 1.0 : 0.0;
     set_duty_cycles();
+    //update and send encoder data
+    encoder_read_and_send(user_ctx);
     vTaskDelay(50 / portTICK_PERIOD_MS);
     }
   //change direction
@@ -578,26 +557,21 @@ static void change_direction_master(float left_setpoint, float right_setpoint) {
 }
 
 
-static void motor_ctrl_thread(void *arg) {
-  motor_ctrl_task_context_t *user_ctx = (motor_ctrl_task_context_t *) arg;
+static void encoder_read_and_send(motor_ctrl_task_context_t* user_ctx){
   pulse_count_t actual_pulses = {};
   #define pulse_queue_size 10
-  int FL_pulse_queue[pulse_queue_size] = {0};
-  int ML_pulse_queue[pulse_queue_size] = {0};
-  int BL_pulse_queue[pulse_queue_size] = {0};
-  int FR_pulse_queue[pulse_queue_size] = {0};
-  int MR_pulse_queue[pulse_queue_size] = {0};
-  int BR_pulse_queue[pulse_queue_size] = {0};
-  int ENCODER_SUM[6] = {0};
-  //float ENCODER_AVG[6] = {0.0};
-  int i = 0;
-  int j = 0;
-  bool flag = false;
-  int change_dir_counter = 0;
-  float adjusted_length = 1.0;
-  int encoder_string_length = 0;
-  while(1) {
-    xQueueReceive(user_ctx->pid_feedback_queue, &actual_pulses, portMAX_DELAY);
+  static int FL_pulse_queue[pulse_queue_size] = {0};
+  static int ML_pulse_queue[pulse_queue_size] = {0};
+  static int BL_pulse_queue[pulse_queue_size] = {0};
+  static int FR_pulse_queue[pulse_queue_size] = {0};
+  static int MR_pulse_queue[pulse_queue_size] = {0};
+  static int BR_pulse_queue[pulse_queue_size] = {0};
+  static int ENCODER_SUM[6] = {0};
+  static int i = 0;
+  static int j = 0;
+  static bool flag = false;
+  static float adjusted_length = 1.0;
+  xQueueReceive(user_ctx->pid_feedback_queue, &actual_pulses, portMAX_DELAY);
     if(i >= pulse_queue_size) {
       i = 0;
       flag = true;
@@ -647,8 +621,8 @@ static void motor_ctrl_thread(void *arg) {
       //printf("%f,%f,%f,%f,%f,%f\n", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
       //printf("%f,%f,%f,%f,%f,%f\n", 40.0,40.0,40.0,40.0,40.0,40.0);
       portDISABLE_INTERRUPTS();
-      encoder_str[63] = '\n';
       sprintf(encoder_str, "%f,%f,%f,%f,%f,%f", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
+      encoder_str[63] = '\n';
       //encoder_string_length = strlen(encoder_str) + ((strlen(encoder_str) >= 10) ? 3 : 2);
       //sprintf(encoder_str_send, "%i|%s", encoder_string_length,encoder_str);
       //sprintf(encoder_str, "%f,%f,%f,%f,%f,%f", 42.0,-42.0,42.0,30.0,-69.0,69.0);
@@ -668,28 +642,46 @@ static void motor_ctrl_thread(void *arg) {
       // printf("%f,", ENCODER_AVG[MIDDLE_RIGHT]);
       // printf("%f\n", ENCODER_AVG[BACK_RIGHT]);
       i++;
-    if (j < 10) {
-      j++;
-      continue;
-    }
-    j = 0;
+    //if (j < 10) {
+    //  j++;
+    //  continue;
+    //}
+    //j = 0;
   
     //printf("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", 40.0,40.0,40.0,40.0,40.0,40.0); //gives empty strings
     //printf("%f,%f,%f,%f,%f,%f\n", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
     //sprintf(encoder_str, "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
     //uart_write_bytes(EX_UART_NUM, (const char*) encoder_str, strlen(encoder_str));
+}
+
+static void motor_ctrl_thread(void *arg) {
+  motor_ctrl_task_context_t *user_ctx = (motor_ctrl_task_context_t *) arg;
+  int j = 0;
+  while(1) {
+    //retrieve and send out encoder data
+    encoder_read_and_send(user_ctx);
+
+    if(j < 10) {
+      j++;
+      continue;
+    }
+    else {
+      j = 0;
+    }
 
     //Take input read mutex
     xSemaphoreTake(mutex, portMAX_DELAY);
     //check for direction change need
     bool left_set_direction = new_set_point[0] >= 0; //true = forward
     bool right_set_direction = new_set_point[1] >= 0;
+    xSemaphoreGive(mutex);
     if((left_set_direction != left_direction) || (right_set_direction != right_direction)) {
       //call function
-      change_direction_master(new_set_point[0], new_set_point[1]);
+      change_direction_master(new_set_point[0], new_set_point[1], user_ctx);
     }
     
     //put new set points into set point vars for actual motor ctrl
+    xSemaphoreTake(mutex, portMAX_DELAY);
     set_point[LEFT_SIDE] = new_set_point[LEFT_SIDE];
     set_point[RIGHT_SIDE] = new_set_point[RIGHT_SIDE];
     xSemaphoreGive(mutex);

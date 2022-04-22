@@ -75,7 +75,8 @@ void set_direction_left();
 void set_direction_right();
 float calculate_duty_cycle(float pulse_counts, float duty, float set_point);
 static void set_duty_cycles();
-static void change_direction_master(float left_setpoint, float right_setpoint);
+static void change_direction_master(float left_setpoint, float right_setpoint, motor_ctrl_task_context_t* user_ctx);
 void serial_comms_init();
 static void uart_event_task(void *pvParameters);
+static void encoder_read_and_send(motor_ctrl_task_context_t* user_ctx);
 
