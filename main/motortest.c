@@ -518,12 +518,12 @@ static void change_direction_master(float left_setpoint, float right_setpoint, m
   //Stop motors
   while((duty_cycles[FRONT_LEFT] > 0.0) || (duty_cycles[MIDDLE_LEFT] > 0.0) || (duty_cycles[BACK_LEFT] > 0.0) || (duty_cycles[FRONT_RIGHT] > 0.0) || (duty_cycles[MIDDLE_RIGHT] > 0.0) || (duty_cycles[BACK_RIGHT] > 0.0))
     {
-    duty_cycles[FRONT_LEFT] = (duty_cycles[FRONT_LEFT] >= 1.0 ) ? duty_cycles[FRONT_LEFT] - 1.0 : 0.0;
-    duty_cycles[MIDDLE_LEFT] = (duty_cycles[MIDDLE_LEFT] >= 1.0 ) ? duty_cycles[MIDDLE_LEFT] - 1.0 : 0.0;
-    duty_cycles[BACK_LEFT] = (duty_cycles[BACK_LEFT] >= 1.0 ) ? duty_cycles[BACK_LEFT] - 1.0 : 0.0;
-    duty_cycles[FRONT_RIGHT] = (duty_cycles[FRONT_RIGHT] >= 1.0 ) ? duty_cycles[FRONT_RIGHT] - 1.0 : 0.0;
-    duty_cycles[MIDDLE_RIGHT] = (duty_cycles[MIDDLE_RIGHT] >= 1.0 ) ? duty_cycles[MIDDLE_RIGHT] - 1.0 : 0.0;
-    duty_cycles[BACK_RIGHT] = (duty_cycles[BACK_RIGHT] >= 1.0 ) ? duty_cycles[BACK_RIGHT] - 1.0 : 0.0;
+    duty_cycles[FRONT_LEFT] = (duty_cycles[FRONT_LEFT] >= 4.0 ) ? duty_cycles[FRONT_LEFT] - 4.0 : 0.0;
+    duty_cycles[MIDDLE_LEFT] = (duty_cycles[MIDDLE_LEFT] >= 4.0 ) ? duty_cycles[MIDDLE_LEFT] - 4.0 : 0.0;
+    duty_cycles[BACK_LEFT] = (duty_cycles[BACK_LEFT] >= 4.0 ) ? duty_cycles[BACK_LEFT] - 4.0 : 0.0;
+    duty_cycles[FRONT_RIGHT] = (duty_cycles[FRONT_RIGHT] >= 4.0 ) ? duty_cycles[FRONT_RIGHT] - 4.0 : 0.0;
+    duty_cycles[MIDDLE_RIGHT] = (duty_cycles[MIDDLE_RIGHT] >= 4.0 ) ? duty_cycles[MIDDLE_RIGHT] - 4.0 : 0.0;
+    duty_cycles[BACK_RIGHT] = (duty_cycles[BACK_RIGHT] >= 4.0 ) ? duty_cycles[BACK_RIGHT] - 4.0 : 0.0;
     set_duty_cycles();
     //update and send encoder data
     encoder_read_and_send(user_ctx);
@@ -545,11 +545,9 @@ static void change_direction_master(float left_setpoint, float right_setpoint, m
     }
     else if ((left_setpoint < 0.0) && (right_setpoint < 0.0)){
       set_direction_backward();
-      //printf("set direction backward\n");
     }
     else if ((left_setpoint >= 0.0) && (right_setpoint >= 0.0)){
       set_direction_forward();
-      //printf("set direction to forward\n");
     }
   }
   //give back mutex
@@ -608,50 +606,19 @@ static void encoder_read_and_send(motor_ctrl_task_context_t* user_ctx){
 
       //calculate new average
       xSemaphoreTake(mutex, portMAX_DELAY);
-      //portDISABLE_INTERRUPTS();
       ENCODER_AVG[FRONT_LEFT] = (float)ENCODER_SUM[FRONT_LEFT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[MIDDLE_LEFT] = (float)ENCODER_SUM[MIDDLE_LEFT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[BACK_LEFT] = (float)ENCODER_SUM[BACK_LEFT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[FRONT_RIGHT] = (float)ENCODER_SUM[FRONT_RIGHT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[MIDDLE_RIGHT] = (float)ENCODER_SUM[MIDDLE_RIGHT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
       ENCODER_AVG[BACK_RIGHT] = (float)ENCODER_SUM[BACK_RIGHT]*ENCODER_CORRECTION_FACTOR/(adjusted_length);
-      //xSemaphoreGive(mutex);
-      //xSemaphoreTake(mutex, portMAX_DELAY);
-      //portDISABLE_INTERRUPTS();
-      //printf("%f,%f,%f,%f,%f,%f\n", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
-      //printf("%f,%f,%f,%f,%f,%f\n", 40.0,40.0,40.0,40.0,40.0,40.0);
       portDISABLE_INTERRUPTS();
       sprintf(encoder_str, "%f,%f,%f,%f,%f,%f", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
       encoder_str[63] = '\n';
-      //encoder_string_length = strlen(encoder_str) + ((strlen(encoder_str) >= 10) ? 3 : 2);
-      //sprintf(encoder_str_send, "%i|%s", encoder_string_length,encoder_str);
-      //sprintf(encoder_str, "%f,%f,%f,%f,%f,%f", 42.0,-42.0,42.0,30.0,-69.0,69.0);
       uart_write_bytes(EX_UART_NUM, (const char*) encoder_str, 64);
       portENABLE_INTERRUPTS();
       xSemaphoreGive(mutex);
-      //printf("Front Left rpm: %f\n", (float)FL_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
-      //printf("Middle Left rpm: %f\n", (float)ML_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
-      //printf("Back Left rpm: %f\n", (float)BL_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
-      //printf("Front Right rpm: %f\n", (float)FR_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
-      //printf("Middle Right rpm: %f\n", (float)MR_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
-      //printf("Back Right rpm: %f\n", (float)BR_avg*ENCODER_CORRECTION_FACTOR/((float)pulse_queue_size));
-      // printf("%f,", ENCODER_AVG[FRONT_LEFT]);
-      // printf("%f,", ENCODER_AVG[MIDDLE_LEFT]);
-      // printf("%f,", ENCODER_AVG[BACK_LEFT]);
-      // printf("%f,", ENCODER_AVG[FRONT_RIGHT]);
-      // printf("%f,", ENCODER_AVG[MIDDLE_RIGHT]);
-      // printf("%f\n", ENCODER_AVG[BACK_RIGHT]);
       i++;
-    //if (j < 10) {
-    //  j++;
-    //  continue;
-    //}
-    //j = 0;
-  
-    //printf("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", 40.0,40.0,40.0,40.0,40.0,40.0); //gives empty strings
-    //printf("%f,%f,%f,%f,%f,%f\n", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
-    //sprintf(encoder_str, "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
-    //uart_write_bytes(EX_UART_NUM, (const char*) encoder_str, strlen(encoder_str));
 }
 
 static void motor_ctrl_thread(void *arg) {
@@ -661,6 +628,7 @@ static void motor_ctrl_thread(void *arg) {
     //retrieve and send out encoder data
     encoder_read_and_send(user_ctx);
 
+    //needed to help with startup for controller
     if(j < 10) {
       j++;
       continue;
@@ -672,11 +640,10 @@ static void motor_ctrl_thread(void *arg) {
     //Take input read mutex
     xSemaphoreTake(mutex, portMAX_DELAY);
     //check for direction change need
-    bool left_set_direction = new_set_point[0] >= 0; //true = forward
-    bool right_set_direction = new_set_point[1] >= 0;
+    bool left_set_direction = new_set_point[0] > 0; //true = forward
+    bool right_set_direction = new_set_point[1] > 0;
     xSemaphoreGive(mutex);
     if((left_set_direction != left_direction) || (right_set_direction != right_direction)) {
-      //call function
       change_direction_master(new_set_point[0], new_set_point[1], user_ctx);
     }
     
@@ -696,9 +663,6 @@ static void motor_ctrl_thread(void *arg) {
     duty_cycles[BACK_RIGHT] = calculate_duty_cycle(ENCODER_AVG[BACK_RIGHT], duty_cycles[BACK_RIGHT], set_point[RIGHT_SIDE]);
     set_duty_cycles();
     xSemaphoreGive(motor_mutex);
-
-
-    //printf("FL ENC: %f\t FL DUTY: %f\t FL SET: %f\n", ENCODER_AVG[FRONT_LEFT],duty_cycles[FRONT_LEFT],set_point[LEFT_SIDE]);
     vTaskDelay(50 / portTICK_PERIOD_MS);
   }
 }
@@ -818,8 +782,7 @@ void set_direction_right() {
   gpio_set_level(GPIO_RIGHT_2_DIR, 1);
 }
 
-float calculate_duty_cycle(float pulse_counts, float duty, float set_point) {  //probs going to need to change pulse_counts to a float
-  //#define set_point 50.0  //placeholder cause im lazy
+float calculate_duty_cycle(float pulse_counts, float duty, float set_point) {  
   #define PAD 4.0  //+- for RPM acceptance
   #define MAX_RPM 60.0  //maximum allowable RPM
 
@@ -842,7 +805,6 @@ float calculate_duty_cycle(float pulse_counts, float duty, float set_point) {  /
     }
     return duty + 1.0;
   }
-  //printf("calculated duty: %f\n", duty);
   return duty;
 }
 
@@ -851,32 +813,22 @@ static void uart_event_task(void *pvParameters)
     uart_event_t event;
     size_t buffered_size;
     uint8_t* dtmp = (uint8_t*) malloc(RD_BUF_SIZE);
-    //float i1; float i2;
     for(;;) {
         //Waiting for UART event.
         if(xQueueReceive(uart0_queue, (void * )&event, (TickType_t)portMAX_DELAY)) {
             bzero(dtmp, RD_BUF_SIZE);
-            //ESP_LOGI(TAG, "uart[%d] event:", EX_UART_NUM);
             switch(event.type) {
                 //Event of UART receving data
                 /*We'd better handler data event fast, there would be much more data events than
                 other types of events. If we take too much time on data event, the queue might
                 be full.*/
                 case UART_DATA:
-                    //ESP_LOGI(TAG, "[UART DATA]: %d", event.size);
                     uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
-                    //ESP_LOGI(TAG, "[DATA EVT]:");
-                    //sscanf((const char *) dtmp, "%f%f", &i1, &i2);
-                    //printf("%f%f\n", i1, i2);
                     xSemaphoreTake(mutex, portMAX_DELAY);
                     char* pdtemp;
                     new_set_point[0] = strtof((const char *)dtmp, &pdtemp);
                     new_set_point[1] = strtof(pdtemp, NULL);
-                    //printf("%f,%f,%f,%f,%f,%f\n", 40.0,40.0,40.0,40.0,40.0,40.0);
-                    //printf("%f,%f,%f,%f,%f,%f\n", ENCODER_AVG[0],ENCODER_AVG[1],ENCODER_AVG[2],ENCODER_AVG[3],ENCODER_AVG[4],ENCODER_AVG[5]);
-                    xSemaphoreGive(mutex);
-                    //uart_write_bytes(EX_UART_NUM, (const char*) dtmp, event.size);
-                    
+                    xSemaphoreGive(mutex);                    
                     break;
                 //Event of HW FIFO overflow detected
                 case UART_FIFO_OVF:
@@ -938,13 +890,6 @@ static void uart_event_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
-/*
- - Rewrite encoder initializers, potentially accessor interrupt functions
- - Add in PID functionalilty
- - Add in rosserial interface, set point injection
-
-*/
-
 void app_main(void)
 {
   QueueHandle_t pid_fb_queue = xQueueCreate(PID_FEEDBACK_QUEUE_LEN, sizeof(pulse_count_t));
@@ -957,8 +902,7 @@ void app_main(void)
   static motor_ctrl_task_context_t my_task_ctx = {};
   my_task_ctx.pid_feedback_queue = pid_fb_queue;
   set_direction_forward();
-  xTaskCreate(motor_ctrl_thread, "motor_ctrl_thread", 4096, &my_task_ctx, 5, NULL);
-  //TODO: add thread to set expected pulses 
+  xTaskCreate(motor_ctrl_thread, "motor_ctrl_thread", 4096, &my_task_ctx, 5, NULL); 
   //Create a task to handler UART event from ISR
   xTaskCreate(uart_event_task, "uart_event_task", 2048, NULL, 4, NULL);
 }
