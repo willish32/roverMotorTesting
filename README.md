@@ -31,3 +31,4 @@ If you are going to use/modify the Rover Motor Control program (https://github.c
 - Six (6) pulse width modulation (PWM) control signals via I/O pins
 - Six (6) direction control pins via I/O pins
 - Six (6) encoder averages in revolutions per minute (RPM) separated by commas and terminated with a '\n' via UART of char type
+- 
